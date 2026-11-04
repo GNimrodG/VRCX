@@ -156,20 +156,14 @@ releases.
 `.github/workflows/desktop-release.yaml` is the actual release path, separate
 from the build-verification CI above: triggered by the same `v*` tag push
 that cuts a Docker release (CLAUDE.md's "Cutting a release"), it builds
-Windows and Linux (x64+arm64) plus macOS (Apple Silicon only — Intel was
-dropped after repeatedly failing to get a runner dispatched at all), self-
+Windows and Linux (x64+arm64), self-
 signs the Windows artifacts with the cert from
 `build-scripts/generate-self-signed-certs.sh`, and attaches everything to a
-**draft** GitHub Release — see CLAUDE.md's "Desktop client release
-artifacts" for the full live-run history. Windows signing is confirmed
-actually working (`signtool.exe` verified signing the real installer), and
-Linux/Windows build mechanics are proven repeatable. macOS ships **unsigned**
-deliberately — electron-builder's own preflight refuses any self-signed
-identity outright (macOS flags it untrusted regardless of successful
-keychain import), a genuine limitation with no config-level fix, not a bug
-in this workflow. macOS's runner scheduling on this account has also been
-unreliable — treat a stalled macOS leg as worth retrying, not a workflow
-bug.
+published GitHub Release — see docs/release.md for the full details. Windows
+signing is confirmed actually working (`signtool.exe` verified signing the
+real installer), and the Linux/Windows build mechanics are proven repeatable.
+There is no macOS build (dropped 2026-11-04: the runner never got dispatched
+reliably).
 
 ## Not covered here
 

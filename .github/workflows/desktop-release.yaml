@@ -1,8 +1,8 @@
 # Fork-only workflow: builds the Electron desktop client for Windows and
-# Linux (x64+arm64, self-signed on Windows) and macOS (Apple Silicon only,
-# unsigned -- see the build-macos job's own comment for why Intel/macos-13
-# was dropped, and the comment further below for why macOS is unsigned),
-# and attaches the results to a published GitHub Release for the pushed tag.
+# Linux (x64+arm64, self-signed on Windows) and attaches the results to a
+# published GitHub Release for the pushed tag. There is no macOS build: the
+# macOS runner never got dispatched reliably on this account, so the job was
+# dropped (2026-11-04) rather than kept as a perpetually-stuck leg.
 #
 # Triggers on the same `v*` tag push server-docker.yaml already uses, so one
 # `git tag && git push` (CLAUDE.md's "Cutting a release") cuts both releases
@@ -18,19 +18,6 @@
 # secret. Confirmed live: signtool.exe actually signs the real installer.
 # Not CA-issued, so it reduces some SmartScreen friction but doesn't
 # eliminate the warning.
-#
-# macOS ships UNSIGNED, deliberately -- not a gap to close later without a
-# real Apple Developer ID. Found live (2026-08-18) after a long investigation
-# (git history has the full trail): a self-signed PKCS12 CAN be imported into
-# a keychain (a real, separate OpenSSL/macOS PBE-algorithm compatibility bug
-# had to be fixed first), but electron-builder's own identity-discovery
-# preflight then refuses to use it anyway, because macOS's Security framework
-# flags any cert with no trusted CA chain as CSSMERR_TP_NOT_TRUSTED --
-# self-signed certs can never NOT have this flag. electron-builder manages
-# its signing keychain internally with no hook to mark an identity trusted
-# before that check runs. A real fix means bypassing electron-builder's
-# built-in mac signing (manual keychain trust + codesign, outside its
-# control) -- explicitly out of scope for now.
 name: Desktop Client Release
 
 on:
@@ -189,91 +176,9 @@ jobs:
                   name: desktop-${{ matrix.id }}
                   path: ${{ steps.artifact.outputs.path }}
 
-    # A separate job from `build` above, not another matrix leg in it --
-    # macOS runners on this account have been unreliable to schedule at all
-    # (found live 2026-08-17 across four dry runs: macos-x64/macos-13 never
-    # once got dispatched, and even macos-arm64/macos-latest started
-    # stalling on later attempts). Apple Silicon only now, deliberately --
-    # Intel (macos-13) is dropped entirely rather than kept as a
-    # perpetually-stuck matrix leg. Steps mirror `build` above, just for
-    # this one macOS leg, minus any signing (see the top-of-file comment).
-    # Build-and-package mechanics (dotnet build, `pnpm run prod-linux`,
-    # electron-builder) are confirmed working end to end.
-    build-macos:
-        name: Build (macos-arm64)
-        runs-on: macos-latest
-        # Bounded so a never-dispatched macOS runner fails fast; publish-release
-        # below tolerates this job failing/being cancelled.
-        timeout-minutes: 30
-        env:
-            CSPROJ: Dotnet/VRCX-Electron.csproj
-            DOTNET_PLATFORM: arm64
-            DOTNET_RID: osx-arm64
-        defaults:
-            run:
-                shell: bash
-        steps:
-            - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-
-            - name: Setup .NET 10
-              uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
-              with:
-                  dotnet-version: '10.0.x'
-
-            - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-              with:
-                  path: ~/.nuget/packages
-                  key: ${{ runner.os }}-macos-arm64-nuget-${{ hashFiles(env.CSPROJ) }}
-                  restore-keys: |
-                      ${{ runner.os }}-macos-arm64-nuget-
-
-            - name: Build the .NET side (macos-arm64)
-              run: dotnet build "$CSPROJ" -p:Configuration=Release -p:WarningLevel=0 -p:Platform=$DOTNET_PLATFORM -p:PlatformTarget=$DOTNET_PLATFORM -p:RestorePackagesConfig=true -t:"Restore;Clean;Build" -m -r $DOTNET_RID
-
-            - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
-            - name: Node.js
-              uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-              with:
-                  node-version: lts/*
-                  cache: pnpm
-
-            - run: pnpm install --frozen-lockfile
-
-            - name: Build the Vue app (PLATFORM=linux, i.e. the Electron client)
-              run: pnpm run prod-linux
-
-            # Unsigned, deliberately -- see the top-of-file comment for why
-            # (macOS's Security framework refuses any self-signed identity
-            # regardless of keychain-import success, and electron-builder's
-            # own preflight has no override for that). No CSC_LINK/
-            # CSC_KEY_PASSWORD wiring here at all.
-            - name: Package the Electron app (macos-arm64)
-              run: pnpm run build-electron-arm64
-
-            - name: Locate the built dmg
-              id: artifact
-              run: |
-                  set -euo pipefail
-                  path="$(find build -maxdepth 1 -name '*.dmg' -print -quit)"
-                  if [ -z "$path" ]; then
-                      echo "No packaged artifact found under build/ for macos-arm64" >&2
-                      exit 1
-                  fi
-                  echo "path=$path" >> "$GITHUB_OUTPUT"
-
-            - name: Upload artifact
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-              with:
-                  name: desktop-macos-arm64
-                  path: ${{ steps.artifact.outputs.path }}
-
     publish-release:
         name: Publish release
-        needs: [build, build-macos]
-        # macOS runners on this account often never get dispatched (see the
-        # build-macos comment), so a missing dmg must not block the release:
-        # publish whenever every non-macOS build succeeded.
+        needs: [build]
         if: ${{ !cancelled() && needs.build.result == 'success' && startsWith(github.ref, 'refs/tags/v') }}
         runs-on: ubuntu-latest
         permissions:
@@ -401,7 +306,7 @@ jobs:
                       echo
                       echo "## Platform notes"
                       echo
-                      echo "Desktop client (Electron) build for $tag. Self-signed installers for Windows (x64/arm64), unsigned images for Linux (x64/arm64) and macOS (Apple Silicon only) -- see CLAUDE.md's \"Desktop client OS support\" table for what's actually verified per platform. Windows builds require a system-wide .NET 10 runtime install. macOS builds are unsigned -- Gatekeeper will show an 'unidentified developer' warning on first launch."
+                      echo "Desktop client (Electron) build for $tag. Self-signed installers for Windows (x64/arm64), unsigned images for Linux (x64/arm64) -- see CLAUDE.md's \"Desktop client OS support\" table for what's actually verified per platform. Windows builds require a system-wide .NET 10 runtime install."
                   } > release-notes.md
                   gh release create "$tag" \
                       --title "$tag" \
