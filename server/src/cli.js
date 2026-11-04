@@ -8,28 +8,18 @@
  * phase 3.
  *
  * Always run through the loader:
- *   node --import ./server/register-hooks.mjs server/src/cli.js <command>
+ * node --import ./server/register-hooks.mjs server/src/cli.js <command>
  * or, from the repo root:  npm run server -- <command>
  */
 import { readFileSync } from 'node:fs';
 
 import { mountHeadlessApp } from './app.js';
 import { migrate, openDatabase, readTargetDatabaseVersion } from './db.js';
-import {
-    buildServerVersion,
-    buildUserAgent,
-    readForkVersion,
-    readVersion
-} from './globals.js';
+import { buildServerVersion, buildUserAgent, readForkVersion, readVersion } from './globals.js';
 import { installGroupInstanceRelay } from './group-instance-relay.js';
 import { setServerTotp } from './http-auth.js';
 import { createHttpServer } from './http-server.js';
-import {
-    acquireLock,
-    installLockReleaseOnExit,
-    isLocked,
-    releaseLock
-} from './lock.js';
+import { acquireLock, installLockReleaseOnExit, isLocked, releaseLock } from './lock.js';
 import { log } from './log.js';
 import { resolveDatabasePath } from './paths.js';
 import { ask, askHidden } from './prompt.js';
@@ -38,14 +28,11 @@ import {
     logoutSession,
     restoreSession,
     scheduleSessionRestoreRetries,
+    superviseSession,
     waitForPipelineConnected,
     wsState
 } from './session.js';
-import {
-    generateTotpSecret,
-    totpProvisioningUri,
-    verifyTotpCode
-} from './totp.js';
+import { generateTotpSecret, totpProvisioningUri, verifyTotpCode } from './totp.js';
 import { checkForUpdate } from './update-check.js';
 import { installWebApi } from './webapi-init.js';
 
@@ -173,17 +160,11 @@ async function bootstrapSession(handle) {
  * the operator clearly intended HTTPS.
  *
  * @param {Record<string, any>} flags
- * @returns {{ cert: Buffer, key: Buffer } | undefined}
+ * @returns {{ cert: Buffer; key: Buffer } | undefined}
  */
 function resolveTlsOptions(flags) {
-    const certPath =
-        typeof flags['tls-cert'] === 'string'
-            ? flags['tls-cert']
-            : process.env.VRCX_SERVER_TLS_CERT;
-    const keyPath =
-        typeof flags['tls-key'] === 'string'
-            ? flags['tls-key']
-            : process.env.VRCX_SERVER_TLS_KEY;
+    const certPath = typeof flags['tls-cert'] === 'string' ? flags['tls-cert'] : process.env.VRCX_SERVER_TLS_CERT;
+    const keyPath = typeof flags['tls-key'] === 'string' ? flags['tls-key'] : process.env.VRCX_SERVER_TLS_KEY;
 
     if (!certPath && !keyPath) {
         return undefined;
@@ -212,12 +193,8 @@ function resolveTrustProxy(flags) {
  * @param {Record<string, any>} flags
  */
 async function runLogin(handle, flags) {
-    const username =
-        typeof flags.username === 'string'
-            ? flags.username
-            : await ask('VRChat username or email: ');
-    const password =
-        process.env.VRCHAT_PASSWORD ?? (await askHidden('VRChat password: '));
+    const username = typeof flags.username === 'string' ? flags.username : await ask('VRChat username or email: ');
+    const password = process.env.VRCHAT_PASSWORD ?? (await askHidden('VRChat password: '));
 
     if (!username || !password) {
         throw new Error('A username and password are required');
@@ -254,25 +231,13 @@ async function main() {
         const resolved = resolveDatabasePath();
         const handle = await openDatabase({ ...openOptions, create: false });
         await handle.configRepository.init();
-        const version = await handle.configRepository.getInt(
-            'VRCX_databaseVersion',
-            0
-        );
-        const tables = handle.sqlite.Execute(
-            "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table'"
-        );
-        const lastUser = await handle.configRepository.getString(
-            'lastUserLoggedIn',
-            ''
-        );
+        const version = await handle.configRepository.getInt('VRCX_databaseVersion', 0);
+        const tables = handle.sqlite.Execute("SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table'");
+        const lastUser = await handle.configRepository.getString('lastUserLoggedIn', '');
         console.log(`app data directory : ${resolved.appDataDirectory}`);
         console.log(`database           : ${handle.databasePath}`);
-        console.log(
-            `resolved via       : ${openOptions.databasePath ? '--db argument' : resolved.source}`
-        );
-        console.log(
-            `schema version     : ${version} (target ${readTargetDatabaseVersion()})`
-        );
+        console.log(`resolved via       : ${openOptions.databasePath ? '--db argument' : resolved.source}`);
+        console.log(`schema version     : ${version} (target ${readTargetDatabaseVersion()})`);
         console.log(`tables             : ${tables[0]?.[0] ?? 0}`);
         console.log(`logged in as       : ${lastUser || '(nobody)'}`);
         console.log(`user agent         : ${buildUserAgent(readVersion())}`);
@@ -309,14 +274,10 @@ async function main() {
     if (command === 'tables') {
         const handle = await openDatabase({ ...openOptions, create: false });
         const names = handle.sqlite
-            .Execute(
-                "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-            )
+            .Execute("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
             .map((row) => String(row[0]));
         for (const name of names) {
-            const count = handle.sqlite.Execute(
-                `SELECT COUNT(*) FROM "${name.replaceAll('"', '""')}"`
-            );
+            const count = handle.sqlite.Execute(`SELECT COUNT(*) FROM "${name.replaceAll('"', '""')}"`);
             console.log(`${String(count[0]?.[0] ?? 0).padStart(9)}  ${name}`);
         }
         handle.close();
@@ -384,13 +345,9 @@ async function main() {
             if (!result.vrcxUpdateAvailable) {
                 console.log('Up to date with upstream.');
             } else if (result.forkReleaseAvailable) {
-                console.log(
-                    `Upstream update available — fork release already exists: ${result.forkReleaseTag}`
-                );
+                console.log(`Upstream update available — fork release already exists: ${result.forkReleaseTag}`);
             } else {
-                console.log(
-                    'Upstream update available — no matching fork release yet.'
-                );
+                console.log('Upstream update available — no matching fork release yet.');
                 console.log(`Open an issue: ${result.issueUrl}`);
             }
         }
@@ -398,9 +355,7 @@ async function main() {
         // release for it yet" — not an error — so the scheduled CI workflow
         // (task: daily check) can key off the exit code directly, the same
         // way `git diff --exit-code` uses its own exit code as a signal.
-        return result.vrcxUpdateAvailable && !result.forkReleaseAvailable
-            ? 1
-            : 0;
+        return result.vrcxUpdateAvailable && !result.forkReleaseAvailable ? 1 : 0;
     }
 
     if (command === 'login') {
@@ -418,9 +373,7 @@ async function main() {
             const { stores } = await bootstrapSession(handle);
             const user = await restoreSession(stores);
             if (!user?.id) {
-                throw new Error(
-                    'Not logged in, or the stored session is no longer valid. Run `login`.'
-                );
+                throw new Error('Not logged in, or the stored session is no longer valid. Run `login`.');
             }
             console.log(`${user.displayName} (${user.id})`);
             console.log(`status   : ${user.status ?? 'unknown'}`);
@@ -456,9 +409,7 @@ async function main() {
         const { stores } = await bootstrapSession(handle);
         const user = await restoreSession(stores);
         if (!user?.id) {
-            throw new Error(
-                'Not logged in, or the stored session is no longer valid. Run `login`.'
-            );
+            throw new Error('Not logged in, or the stored session is no longer valid. Run `login`.');
         }
         await waitForPipelineConnected();
         // Real self-rescheduling daemon loop (phase 2b step 8): friend/group
@@ -481,9 +432,7 @@ async function main() {
         clearInterval(interval);
         releaseLock(handle.databasePath);
         handle.close();
-        console.log(
-            `\nReceived ${wsState.messageCount} events (${wsState.bytesReceived} bytes)`
-        );
+        console.log(`\nReceived ${wsState.messageCount} events (${wsState.bytesReceived} bytes)`);
         return 0;
     }
 
@@ -537,9 +486,7 @@ async function main() {
             });
             stores.updateLoop.updateLoop();
         } else {
-            log.warn(
-                'Not logged in to VRChat; serving db/config RPC only. Run `login` for the pipeline stream.'
-            );
+            log.warn('Not logged in to VRChat; serving db/config RPC only. Run `login` for the pipeline stream.');
             // A failed restoreSession() above is a one-shot attempt — this
             // keeps trying in the background so a transient boot-time
             // failure (VRChat/the network not ready yet, most likely on an
@@ -553,10 +500,11 @@ async function main() {
             });
         }
 
-        const { server, streamClientCount, useHttps } = await createHttpServer(
-            handle,
-            { tls, trustProxy }
-        );
+        // Covers the case the block above can't: boot logged in fine, then
+        // VRChat/the network hiccuped and the app logged itself out.
+        superviseSession(stores, handle);
+
+        const { server, streamClientCount, useHttps } = await createHttpServer(handle, { tls, trustProxy });
         const host = process.env.VRCX_SERVER_HOST || '0.0.0.0';
         const port = Number(process.env.VRCX_SERVER_PORT) || 9000;
 
@@ -564,18 +512,14 @@ async function main() {
             server.once('error', reject);
             server.listen(port, host, resolve);
         });
-        console.log(
-            `Serving on ${useHttps ? 'https' : 'http'}://${host}:${port}. Press Ctrl-C to stop.`
-        );
+        console.log(`Serving on ${useHttps ? 'https' : 'http'}://${host}:${port}. Press Ctrl-C to stop.`);
 
         await new Promise((resolve) => {
             process.on('SIGINT', resolve);
             process.on('SIGTERM', resolve);
         });
 
-        console.log(
-            `\nShutting down (${streamClientCount()} stream client(s) connected).`
-        );
+        console.log(`\nShutting down (${streamClientCount()} stream client(s) connected).`);
         await new Promise((resolve) => server.close(resolve));
         releaseLock(handle.databasePath);
         handle.close();

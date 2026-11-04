@@ -11,19 +11,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import {
-    afterAll,
-    afterEach,
-    beforeAll,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi
-} from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { openDatabase } from '../src/db.js';
-import { scheduleSessionRestoreRetries } from '../src/session.js';
+import { scheduleSessionRestoreRetries, superviseSession, watchState } from '../src/session.js';
 
 describe('scheduleSessionRestoreRetries', () => {
     /** @type {string} */
@@ -154,5 +145,58 @@ describe('scheduleSessionRestoreRetries', () => {
         stop();
         await vi.advanceTimersByTimeAsync(10_000);
         expect(restoreSessionFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('resumeUserId retries even though lastUserLoggedIn was wiped, and writes it back each attempt', async () => {
+        // runLogoutFlow leaves lastUserLoggedIn unset.
+        const restoreSessionFn = vi.fn().mockResolvedValue(null);
+        const stores = { ...fakeStores(), auth: { loginForm: {} } };
+
+        const stop = await scheduleSessionRestoreRetries(stores, handle, {
+            restoreSessionFn,
+            retryDelaysMs: [1_000],
+            steadyStateMs: 1_000,
+            resumeUserId: 'usr_resume'
+        });
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(restoreSessionFn).toHaveBeenCalledTimes(1);
+        expect(await handle.configRepository.getString('lastUserLoggedIn', '')).toBe('usr_resume');
+        expect(stores.auth.loginForm.lastUserLoggedIn).toBe('usr_resume');
+        stop();
+    });
+});
+
+describe('superviseSession', () => {
+    afterEach(() => {
+        watchState.isLoggedIn = false;
+    });
+
+    it('arms the retry loop when a logged-in session drops, and disarms on recovery', async () => {
+        const stopRetries = vi.fn();
+        const scheduleFn = vi.fn().mockResolvedValue(stopRetries);
+        const stores = { user: { currentUser: { id: 'usr_a' } } };
+        watchState.isLoggedIn = true;
+
+        const stop = superviseSession(stores, {}, { scheduleFn });
+
+        watchState.isLoggedIn = false;
+        await vi.waitFor(() => expect(scheduleFn).toHaveBeenCalledTimes(1));
+        expect(scheduleFn.mock.calls[0][2]).toEqual({ resumeUserId: 'usr_a' });
+
+        watchState.isLoggedIn = true;
+        await vi.waitFor(() => expect(stopRetries).toHaveBeenCalledTimes(1));
+        stop();
+    });
+
+    it('does nothing when it was never logged in', async () => {
+        const scheduleFn = vi.fn();
+        watchState.isLoggedIn = false;
+        const stop = superviseSession({ user: { currentUser: null } }, {}, { scheduleFn });
+        watchState.isLoggedIn = true; // login with no id yet...
+        watchState.isLoggedIn = false;
+        await new Promise((r) => setTimeout(r, 20));
+        expect(scheduleFn).not.toHaveBeenCalled();
+        stop();
     });
 });
