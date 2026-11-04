@@ -73,7 +73,8 @@
 
         <NameplateEffect :nameplate-effect="userDialog.ref.nameplateEffect" />
 
-        <div class="relative isolate flex flex-col gap-2 px-3 pb-3 pt-15 z-10">
+        <div
+            class="relative isolate flex flex-col gap-2 px-3 pb-3 pt-15 z-40 pointer-events-none *:pointer-events-auto">
             <div class="flex gap-1.5 items-center">
                 <div class="flex-1 min-w-0">
                     <div class="flex flex-wrap items-center gap-x-1 leading-snug">
@@ -97,6 +98,7 @@
                         <span
                             class="font-bold cursor-pointer flex flex-wrap"
                             v-text="userDialog.ref.displayName"
+                            :title="userDialog.ref.displayName"
                             @click="copyUserDisplayName(userDialog.ref.displayName)"></span>
                         <TooltipWrapper
                             v-if="userDialog.publicProfileRef?.isEconomyCreator"
@@ -203,6 +205,17 @@
                         class="h-5 px-1.5 text-[11px] leading-none border-zinc-500/50! dark:border-zinc-400!">
                         <Users class="h-2.5 w-2.5" />
                         {{ userDialog.mutualFriendCount }}
+                    </Badge>
+                </TooltipWrapper>
+                <TooltipWrapper
+                    v-if="userDialog.mutualGroupCount"
+                    side="top"
+                    :content="t('dialog.user.tags.mutual_groups')">
+                    <Badge
+                        variant="outline"
+                        class="h-5 px-1.5 text-[11px] leading-none border-zinc-500/50! dark:border-zinc-400!">
+                        <Network class="h-2.5 w-2.5" />
+                        {{ userDialog.mutualGroupCount }}
                     </Badge>
                 </TooltipWrapper>
                 <TooltipWrapper
@@ -490,6 +503,7 @@
         Image,
         Info,
         Monitor,
+        Network,
         Shield,
         ShieldAlert,
         ShieldCheck,

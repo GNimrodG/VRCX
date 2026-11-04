@@ -1,6 +1,7 @@
 import type {
     ApiConfig,
     Permission,
+    Success,
     TwoFactorAuthCode,
     TwoFactorEmailCode,
     Verify2FaEmailCodeResult,
@@ -60,6 +61,47 @@ const loginReq = {
                 json
             };
             handleConfig(args);
+            return args;
+        });
+    },
+
+    getDeviceCode(): Promise<{
+        json: { deviceCode: string; verificationUrlComplete: string; interval: number; expiresIn: number };
+    }> {
+        return request('auth/device/code', {
+            method: 'POST'
+        }).then((json) => {
+            const args = {
+                json
+            };
+            return args;
+        });
+    },
+
+    getDeviceStatus(params: {
+        deviceCode: string;
+    }): Promise<{ json: { user?: object }; params: { deviceCode: string } }> {
+        return request('auth/device/status', {
+            method: 'POST',
+            params
+        }).then((json) => {
+            const args = {
+                json,
+                params
+            };
+            return args;
+        });
+    },
+
+    resetPassword(params: { email: string }): Promise<{ json: Json<Success>; params: { email: string } }> {
+        return request('auth/password', {
+            method: 'PUT',
+            params
+        }).then((json) => {
+            const args = {
+                json,
+                params
+            };
             return args;
         });
     },

@@ -19,11 +19,11 @@
         "@tanstack/vue-query": "^5.101.4",
         "@vue/runtime-core": "^3.5.40",
         "dayjs": "^1.11.23",
-        "pinia": "^4.0.3",
+        "pinia": "^4.1.0",
         "tough-cookie": "^6.0.1",
-        "vue": "^3.5.43",
+        "vue": "^3.5.44",
         "vue-i18n": "^11.4.8",
-        "vue-router": "^5.3.1",
+        "vue-router": "^5.4.0",
         "ws": "^8.21.2"
     },
     "engines": {

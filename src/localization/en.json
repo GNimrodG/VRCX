@@ -245,6 +245,12 @@
             "login": "Login",
             "register": "Register",
             "forgotPassword": "Forgot Password?",
+            "reset_password": {
+                "title": "Reset Password",
+                "description": "Enter the email address linked to your VRChat account and we'll send you a password recovery email.",
+                "email": "Email",
+                "send": "Send"
+            },
             "updater": "Updater",
             "proxy_settings": "Proxy Settings",
             "settings": "Settings",
@@ -260,6 +266,12 @@
             "language_detect": {
                 "title": "Language Detected",
                 "description": "Your system language appears to be {language}. Would you like to switch to it?"
+            },
+            "qr": {
+                "button": "Login with QR Code",
+                "hint": "Scan with a device signed in to VRChat, then approve the login.",
+                "cancel": "Cancel",
+                "failed": "QR login failed"
             }
         },
         "feed": {
@@ -1152,11 +1164,15 @@
                     "instance_type_player_count": "Instance Type & Player Count",
                     "join_button": "Join Button (Public Only)",
                     "show_details_in_private": "Show Details in Private Instances",
+                    "show_details_in_private_tooltip": "Show world and instance details for Invite, Invite+ and Group Members instances, or while using the Ask Me status",
                     "show_images": "Show World Images",
+                    "show_media_images": "Show Media Images",
+                    "show_media_images_tooltip": "Use the thumbnail of the currently playing video when the world's media player provides one",
                     "show_current_platform": "Show Current Platform",
                     "world_integration": "World Integration",
-                    "world_integration_tooltip": "Show \"Watching/Listening to\" for Popcorn Palace, PyPyDance, VRDancing and LS Media",
-                    "display_world_name_as_discord_status": "Use World Name as Activity"
+                    "world_integration_tooltip": "Show \"Watching/Listening to\" for Popcorn Palace, PyPyDance, VRDancing, LS Media and more",
+                    "display_world_name_as_discord_status": "Use World Name as Activity",
+                    "display_world_name_as_discord_status_tooltip": "Show the world name instead of \"VRChat\" in your Discord status, e.g. \"Playing The Black Cat\""
                 },
                 "rpc": {
                     "vr": "VR",
@@ -1377,7 +1393,8 @@
         "alertdialog": {
             "ok": "OK",
             "cancel": "Cancel",
-            "confirm": "Confirm"
+            "confirm": "Confirm",
+            "dont_show_again": "Don't show this again"
         },
         "prompt": {
             "input_invalid": "Invalid input"
@@ -1400,6 +1417,7 @@
                 "trust_level": "Trust Level",
                 "account_standing": "Account Standing",
                 "mutual_friends": "Mutual Friends",
+                "mutual_groups": "Mutual Groups",
                 "open_in_discord": "Open in Discord",
                 "discord": "Discord"
             },
@@ -1464,6 +1482,11 @@
                 "instance_languages": "Languages:",
                 "last_join": "Last Join",
                 "instance_queuing_enabled": "Queuing Enabled",
+                "instance_hype_train": "Hype Train Active",
+                "instance_hype_train_gifts": "Gifts:",
+                "instance_hype_train_contributors": "Contributors:",
+                "instance_hype_train_started": "Started:",
+                "instance_hype_train_time_remaining": "Time Remaining:",
                 "instance_disabled_content": "Disabled Content:",
                 "instance_creator": "Instance Creator",
                 "note": "Note",
@@ -2912,6 +2935,8 @@
         "unblock_group": "Are you sure you want to unblock this group?",
         "leave_group": "Are you sure you want to leave this group?",
         "disable_gamelog": "Continue? Disable GameLog",
+        "youtube_bot_error_title": "YouTube video failed to load",
+        "youtube_bot_error": "YouTube is blocking video playback with a \"Sign in to confirm\" error. VRCVideoCacher can fix this, would you like to open its Steam store page?",
         "restore_backup": "Continue? Restore Backup",
         "delete_vrc_registry": "Continue? Delete VRC Registry Settings",
         "clear_cache": "Continue? Clear all VRChat cache",
