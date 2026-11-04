@@ -42,6 +42,37 @@ import { rpcCall } from './agent-rpc.js';
 // allowlist so a future genuinely pipeline-only write has somewhere to go.
 const pipelineOnlyWrites = new Set();
 
+// The server's feed-dedup hands back the already-persisted row on a duplicate
+// write (so whichever of server/clients wrote second still gets a rowId), but
+// upstream's coordinators push every returned row into the live feed store. If
+// this client runs the same flow more than once for one real event (found
+// live, 2026-11-04: a friend's "Online" shown many times until restart, with a
+// single row in the DB), each repeat would add another UI entry for the same
+// row. Return each rowId to a caller once per client; repeats become undefined,
+// exactly what a duplicate write returned before the 2026-10-05 sync.
+const feedWrites = new Set([
+    'addGPSToDatabase',
+    'addStatusToDatabase',
+    'addAvatarToDatabase',
+    'addBioToDatabase',
+    'addOnlineOfflineToDatabase'
+]);
+const seenFeedRows = new Set();
+const SEEN_FEED_ROWS_MAX = 500;
+
+function onceForRow(method, promise) {
+    return promise.then((row) => {
+        if (!row?.rowId) return row;
+        const key = `${method}:${row.rowId}`;
+        if (seenFeedRows.has(key)) return undefined;
+        seenFeedRows.add(key);
+        if (seenFeedRows.size > SEEN_FEED_ROWS_MAX) {
+            seenFeedRows.delete(seenFeedRows.values().next().value);
+        }
+        return row;
+    });
+}
+
 export const dbVars = {
     userId: '',
     userPrefix: '',
@@ -69,6 +100,9 @@ export const database = new Proxy(localOverrides, {
         if (typeof prop !== 'string') return undefined;
         if (prop in target) return target[prop];
         if (pipelineOnlyWrites.has(prop)) return () => {};
+        if (feedWrites.has(prop)) {
+            return (...args) => onceForRow(prop, rpcCall('db', prop, args));
+        }
         return (...args) => rpcCall('db', prop, args);
     }
 });
