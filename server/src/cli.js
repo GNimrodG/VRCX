@@ -571,7 +571,7 @@ async function main() {
         // VRChat/the network hiccuped and the app logged itself out.
         superviseSession(stores, handle);
 
-        const { server, streamClientCount, useHttps } = await createHttpServer(handle, {
+        const { server, streamClientCount, closeSockets, useHttps } = await createHttpServer(handle, {
             tls,
             trustProxy,
             apiEnabled: isApiEnabled(),
@@ -614,10 +614,27 @@ async function main() {
         });
 
         console.log(`\nShutting down (${streamClientCount()} stream client(s) connected).`);
-        await new Promise((resolve) => server.close(resolve));
-        if (publicServer) {
-            await new Promise((resolve) => publicServer.close(resolve));
+        // `close()` only resolves once every connection has ended, and browser
+        // tabs hold WebSocket and keep-alive connections open indefinitely, so
+        // it used to hang until the container's stop timeout SIGKILLed us.
+        // Stop accepting, say goodbye to the sockets, then force whatever is
+        // still open after a short grace.
+        const servers = [server, publicServer].filter(Boolean);
+        const closed = Promise.all(
+            servers.map((s) => new Promise((resolve) => s.close(resolve)))
+        );
+        closeSockets();
+        for (const s of servers) {
+            s.closeIdleConnections();
         }
+        const grace = setTimeout(() => {
+            closeSockets(true);
+            for (const s of servers) {
+                s.closeAllConnections();
+            }
+        }, 2000);
+        await closed;
+        clearTimeout(grace);
         releaseLock(handle.databasePath);
         handle.close();
         return 0;

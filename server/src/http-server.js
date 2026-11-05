@@ -430,7 +430,29 @@ export async function createHttpServer(handle, options = {}) {
         });
     }
 
-    return { server, streamClientCount: () => streamClients.size, useHttps };
+    /**
+     * Closes every upgraded socket (stream clients and the desktop agent).
+     * `server.close()` never ends these: Node detaches an upgraded socket from
+     * the HTTP server, so `closeAllConnections()` can't reach them either.
+     *
+     * @param {boolean} [force] terminate instead of sending a close frame
+     */
+    const closeSockets = (force = false) => {
+        for (const client of wss.clients) {
+            if (force) {
+                client.terminate();
+            } else {
+                client.close(1001, 'Server shutting down');
+            }
+        }
+    };
+
+    return {
+        server,
+        streamClientCount: () => streamClients.size,
+        closeSockets,
+        useHttps
+    };
 }
 
 /**
