@@ -180,11 +180,11 @@ function getRid() {
 
 try {
     if (app.isPackaged) {
-        require(path.join(rootDir, 'build/Electron/VRCX-Electron.cjs'));
+        require(path.join(rootDir, 'build/Electron/VRCX-Headless.cjs'));
     } else {
         // if debugging, we need to get from the platform dir ourselves
         const rid = getRid();
-        require(path.join(rootDir, `build/Electron/${rid}/VRCX-Electron.cjs`));
+        require(path.join(rootDir, `build/Electron/${rid}/VRCX-Headless.cjs`));
     }
 } catch (err) {
     // node-api-dotnet throws a cryptic error when no .NET runtime is installed.

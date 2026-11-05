@@ -12,7 +12,7 @@
     <ApplicationRevision>0</ApplicationRevision>
     <ApplicationVersion>1.0.0.*</ApplicationVersion>
     <ApplicationIcon>..\images\VRCX.ico</ApplicationIcon>
-    <AssemblyName>VRCX-Electron</AssemblyName>
+    <AssemblyName>VRCX-Headless</AssemblyName>
     <AssemblyTitle>VRCX</AssemblyTitle>
     <Product>VRCX</Product>
     <Copyright>vrcx-team, pypy, natsumi</Copyright>
@@ -71,8 +71,8 @@
     <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="NLog" Version="6.2.2" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
-    <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.7" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.2.0" />
+    <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.2.0" />
     <PackageReference Include="SourceGear.sqlite3" Version="3.53.4" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.13" />
     <PackageReference Condition="'$(RuntimeIdentifier)'=='linux-arm64'" Include="System.Data.SQLite" Version="2.0.3" />
