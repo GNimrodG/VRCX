@@ -24,6 +24,7 @@
                 v-else
                 ref="frame"
                 :src="frameUrl"
+                :style="{ colorScheme: frameTheme }"
                 :title="t('status_bar.headless_api_keys')"
                 class="h-full min-h-0 w-full border-0 bg-transparent" />
         </DialogContent>
@@ -53,6 +54,9 @@
     const loadError = ref('');
     const frame = ref(null);
     const frameUrl = ref('');
+    // Must equal the framed page's color-scheme, or Chromium paints an opaque
+    // backdrop behind the frame instead of leaving it transparent.
+    const frameTheme = ref('light');
     let serverOrigin = '';
 
     watch(open, (isOpen) => {
@@ -70,6 +74,37 @@
      */
     function currentTheme() {
         return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+    }
+
+    /**
+     * The app's live colours, so the framed page matches named themes
+     * (Midnight, accent colours…) and not just light/dark.
+     *
+     * @returns {string} Extra query parameters
+     */
+    function hostPalette() {
+        const probe = document.createElement('div');
+        probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none';
+        document.body.appendChild(probe);
+        try {
+            const read = (name, prop) => {
+                probe.style.color = '';
+                probe.style[prop] = `var(${name})`;
+                return getComputedStyle(probe)[prop];
+            };
+            const palette = {
+                fg: read('--foreground', 'color'),
+                muted: read('--muted-foreground', 'color'),
+                line: read('--border', 'color'),
+                accent: read('--primary', 'color')
+            };
+            return Object.entries(palette)
+                .filter(([, value]) => value)
+                .map(([key, value]) => `&${key}=${encodeURIComponent(value)}`)
+                .join('');
+        } finally {
+            probe.remove();
+        }
     }
 
     async function start() {
@@ -93,7 +128,8 @@
                     throw new Error(probe.error ?? t('status_bar.headless_api_keys_load_failed'));
                 }
                 serverOrigin = new URL(url).origin;
-                frameUrl.value = `${serverOrigin}/admin/api-keys?bridge=1&theme=${currentTheme()}`;
+                frameTheme.value = currentTheme();
+                frameUrl.value = `${serverOrigin}/admin/api-keys?bridge=1&theme=${currentTheme()}${hostPalette()}`;
                 window.addEventListener('message', onFrameMessage);
             } else {
                 // Without it a disabled server would answer /admin/api-keys
@@ -106,7 +142,8 @@
                 if (!response.ok) {
                     throw new Error(t('status_bar.headless_api_keys_load_failed'));
                 }
-                frameUrl.value = `/admin/api-keys?theme=${currentTheme()}`;
+                frameTheme.value = currentTheme();
+                frameUrl.value = `/admin/api-keys?theme=${currentTheme()}${hostPalette()}`;
             }
             state.value = 'ready';
         } catch (err) {

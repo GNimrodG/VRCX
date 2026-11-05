@@ -53,7 +53,9 @@ describe('HeadlessApiKeysDialog.vue (desktop)', () => {
     it("frames the connected server's own page, passing the theme", async () => {
         document.documentElement.classList.add('dark');
         await mountOpen();
-        expect(wrapper.find('iframe').attributes('src')).toBe(`${SERVER}/admin/api-keys?bridge=1&theme=dark`);
+        expect(wrapper.find('iframe').attributes('src')).toMatch(
+            new RegExp(`^${SERVER}/admin/api-keys\\?bridge=1&theme=dark(&|$)`)
+        );
     });
 
     it('does not frame anything when the server has the API disabled', async () => {
@@ -146,7 +148,7 @@ describe('HeadlessApiKeysDialog.vue (web client)', () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 200, ok: true }));
         await mountOpen();
         expect(fetch).toHaveBeenCalledWith('/api/v1/openapi.json');
-        expect(wrapper.find('iframe').attributes('src')).toBe('/admin/api-keys?theme=light');
+        expect(wrapper.find('iframe').attributes('src')).toMatch(/^\/admin\/api-keys\?theme=light(&|$)/);
     });
 
     it('does not frame the page when the API is disabled (it would frame the web client itself)', async () => {

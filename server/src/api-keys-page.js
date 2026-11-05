@@ -41,6 +41,16 @@ const bridge = framed && params.get('bridge') === '1';
 const theme = params.get('theme');
 if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;
 if (framed) document.documentElement.classList.add('embedded');
+// The host's own palette (named themes like Midnight differ from plain dark),
+// as computed colours; anything that doesn't look like one is ignored.
+if (framed) {
+    for (const [param, variable] of [['fg', '--fg'], ['muted', '--muted'], ['line', '--line'], ['accent', '--accent']]) {
+        const value = params.get(param);
+        if (value && /^(rgba?|hsla?|oklch|oklab|color)\([^()<>;{}"'\\]{1,80}\)$/i.test(value)) {
+            document.documentElement.style.setProperty(variable, value);
+        }
+    }
+}
 
 async function rest(path, options = {}) {
     const response = await fetch(path, {
@@ -276,7 +286,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 [hidden] { display: none !important; }
 .embedded h1, .embedded p.lead { display: none; }
 :root.embedded, :root.embedded body { background: transparent; }
-.embedded main { padding: 0; max-width: none; }
+/* Embedded: nothing opaque, so the host's background shows through. The padding
+   leaves room for the 2px focus outline + 2px offset, which the frame would clip. */
+:root.embedded { --bg: transparent; --card: transparent; }
+.embedded main { padding: 6px; max-width: none; }
 .embedded body { overflow-x: hidden; }
 .embedded h2:first-of-type { margin-top: 0; }
 .embedded section { background: none; border: 0; padding: 0; }
