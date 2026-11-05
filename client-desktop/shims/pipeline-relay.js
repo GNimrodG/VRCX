@@ -34,6 +34,7 @@
 import { AppDebug } from '../../src/services/appConfig.js';
 import { handleGroupUserInstances } from '../../src/coordinators/groupCoordinator.js';
 import { tapConfigFrame } from '../../client-web/shims/config-sync.js';
+import { createStreamReconnector } from '../../client-web/shims/stream-reconnect.js';
 
 const RELAY_DOMAIN = 'vrcx-desktop-stream:';
 
@@ -64,6 +65,8 @@ export function installPipelineRelay() {
 
     const NativeWebSocket = window.WebSocket;
     let activeSocket = null;
+    const reconnector = createStreamReconnector();
+    window.addEventListener('online', () => reconnector.retryNow());
 
     class DesktopRelayWebSocket {
         constructor(url, protocols) {
@@ -96,6 +99,7 @@ export function installPipelineRelay() {
         switch (evt.type) {
             case 'open':
                 socket.readyState = 1; // OPEN
+                reconnector.onOpen();
                 socket.onopen?.();
                 break;
             case 'message':
@@ -106,6 +110,7 @@ export function installPipelineRelay() {
             case 'close':
                 socket.readyState = 3; // CLOSED
                 activeSocket = null;
+                reconnector.onClose();
                 socket.onclose?.(
                     new CloseEvent('close', {
                         code: evt.code ?? 1006,
