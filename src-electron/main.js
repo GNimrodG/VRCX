@@ -1771,6 +1771,12 @@ async function checkAndInstallForkUpdateInner() {
         `echo [%date% %time%] running installer >> "${logPath}"`,
         `"${updateExePath}"`,
         `echo [%date% %time%] installer exit code %errorlevel% >> "${logPath}"`,
+        // The installer runs from update.exe in place, so nothing else removes it.
+        // Left behind, the relaunched app's Update.Check() (Dotnet/Program.cs Init)
+        // moves it to VRCX_Setup.exe and re-runs the installer, then Environment.Exit(0)s
+        // before the app ever opens: the "installer ran twice, app never launched" bug.
+        `del /f /q "${updateExePath}"`,
+        `echo [%date% %time%] removed update.exe >> "${logPath}"`,
         `start "" "${execPathBeforeUpdate}"`,
         `echo [%date% %time%] relaunch issued >> "${logPath}"`
     ];
