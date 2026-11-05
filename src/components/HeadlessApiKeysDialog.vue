@@ -6,7 +6,10 @@
                 <DialogDescription>{{ t('status_bar.headless_api_keys_description') }}</DialogDescription>
             </DialogHeader>
 
-            <p v-if="state === 'disabled'" class="m-0 text-sm text-muted-foreground">
+            <p v-if="state === 'loading'" class="m-0 text-sm text-muted-foreground">
+                {{ t('status_bar.headless_api_keys_loading') }}
+            </p>
+            <p v-else-if="state === 'disabled'" class="m-0 text-sm text-muted-foreground">
                 {{ t('status_bar.headless_api_keys_disabled') }}
             </p>
             <p v-else-if="state === 'error'" class="m-0 text-sm text-destructive">{{ loadError }}</p>
@@ -69,13 +72,15 @@
                             </option>
                         </select>
                     </label>
-                    <p v-if="formError" class="m-0 text-sm text-destructive">{{ formError }}</p>
+                    <p v-if="formError" class="m-0 text-sm text-destructive" role="alert">{{ formError }}</p>
                     <div>
                         <Button type="submit" size="sm" :disabled="busy || selectedScopes.length === 0">
                             {{ t('status_bar.headless_api_keys_create') }}
                         </Button>
                     </div>
                 </form>
+
+                <p v-if="actionError" class="m-0 text-sm text-destructive" role="alert">{{ actionError }}</p>
 
                 <div class="flex flex-col gap-2">
                     <p v-if="keys.length === 0" class="m-0 text-sm text-muted-foreground">
@@ -152,6 +157,7 @@
     const selectedScopes = ref([]);
     const expiryDays = ref(0);
     const formError = ref('');
+    const actionError = ref('');
     const busy = ref(false);
 
     const newKey = ref('');
@@ -161,6 +167,9 @@
 
     watch(open, (isOpen) => {
         if (isOpen) {
+            state.value = 'loading';
+            actionError.value = '';
+            formError.value = '';
             load();
         } else {
             // Don't keep a plaintext key in memory once the dialog is gone.
@@ -177,17 +186,40 @@
         return new Date(iso).toLocaleString();
     }
 
+    /**
+     * Every server call goes through here so a rejected call (e.g. IPC
+     * failing to serialise arguments, the app losing its connection) becomes
+     * a normal `{ ok: false, error }` the UI can show, instead of an
+     * unhandled rejection that leaves the dialog silently doing nothing.
+     *
+     * @param {string} method
+     * @param {unknown[]} args
+     * @returns {Promise<{ ok: boolean; result?: any; error?: string }>}
+     */
+    async function call(method, args) {
+        try {
+            return await agent.rpc('apikeys', method, args);
+        } catch (err) {
+            return { ok: false, error: err?.message ?? String(err) };
+        }
+    }
+
     async function load() {
-        const result = await agent.rpc('apikeys', 'list', []);
+        const result = await call('list', []);
         if (!result.ok) {
             if (/not available/i.test(result.error ?? '')) {
                 state.value = 'disabled';
+            } else if (state.value === 'ready') {
+                // Already showing keys (e.g. refreshing after a create):
+                // keep them, and the one-time new key, on screen.
+                actionError.value = result.error ?? t('status_bar.headless_api_keys_load_failed');
             } else {
                 state.value = 'error';
                 loadError.value = result.error ?? t('status_bar.headless_api_keys_load_failed');
             }
             return;
         }
+        actionError.value = '';
         keys.value = result.result.keys;
         scopes.value = result.result.scopes;
         state.value = 'ready';
@@ -197,10 +229,12 @@
         busy.value = true;
         formError.value = '';
         try {
-            const result = await agent.rpc('apikeys', 'create', [
+            const result = await call('create', [
                 {
                     name: name.value,
-                    scopes: selectedScopes.value,
+                    // Plain copy: the ref's array is a reactive Proxy, which Electron's
+                    // IPC structured clone rejects (DataCloneError).
+                    scopes: [...selectedScopes.value],
                     expiresAt: expiryDays.value ? new Date(Date.now() + expiryDays.value * 864e5).toISOString() : null
                 }
             ]);
@@ -247,8 +281,13 @@
         clearTimeout(pendingRevokeTimer);
         pendingRevokeId.value = null;
         busy.value = true;
+        actionError.value = '';
         try {
-            await agent.rpc('apikeys', 'revoke', [id]);
+            const result = await call('revoke', [id]);
+            if (!result.ok) {
+                actionError.value = result.error ?? t('status_bar.headless_api_keys_revoke_failed');
+                return;
+            }
             await load();
         } finally {
             busy.value = false;

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 
+import HeadlessApiKeysDialog from '../HeadlessApiKeysDialog.vue';
+
 vi.mock('vue-i18n', () => ({
     useI18n: () => ({ t: (key, params) => (params ? `${key}:${JSON.stringify(params)}` : key) })
 }));
@@ -15,6 +17,12 @@ vi.mock('@/components/ui/dialog', () => ({
 }));
 
 const rpc = vi.fn();
+// Electron's ipcRenderer.invoke structured-clones its arguments; a reactive
+// Proxy in them throws DataCloneError, which a bare mock would never notice.
+const ipcLikeRpc = (...args) => {
+    structuredClone(args);
+    return rpc(...args);
+};
 const baseKeys = {
     keys: [
         {
@@ -31,12 +39,11 @@ const baseKeys = {
 
 beforeEach(() => {
     rpc.mockReset();
-    globalThis.window.vrcxDesktopAgent = { rpc };
+    globalThis.window.vrcxDesktopAgent = { rpc: ipcLikeRpc };
 });
 
 async function mountOpen() {
-    const { default: Dialog } = await import('../HeadlessApiKeysDialog.vue');
-    const wrapper = mount(Dialog, { props: { open: false } });
+    const wrapper = mount(HeadlessApiKeysDialog, { props: { open: false } });
     await wrapper.setProps({ open: true });
     await flushPromises();
     return wrapper;
@@ -89,5 +96,64 @@ describe('HeadlessApiKeysDialog.vue', () => {
         await revokeButton().trigger('click');
         await flushPromises();
         expect(rpc).toHaveBeenCalledWith('apikeys', 'revoke', ['abcd1234']);
+    });
+
+    it('shows the server error when creating a key fails', async () => {
+        rpc.mockImplementation(async (_target, method) =>
+            method === 'create' ? { ok: false, error: 'Unknown scope(s): nope' } : { ok: true, result: baseKeys }
+        );
+        const wrapper = await mountOpen();
+        await wrapper.find('input:not([type="checkbox"])').setValue('k');
+        await wrapper.findAll('input[type="checkbox"]')[0].setValue(true);
+        await wrapper.find('form').trigger('submit');
+        await flushPromises();
+        expect(wrapper.find('[role="alert"]').text()).toContain('Unknown scope(s): nope');
+    });
+
+    it('shows an error when the call itself rejects, instead of doing nothing', async () => {
+        rpc.mockImplementation(async (_target, method) => {
+            if (method === 'create') {
+                throw new Error('Connection lost');
+            }
+            return { ok: true, result: baseKeys };
+        });
+        const wrapper = await mountOpen();
+        await wrapper.find('input:not([type="checkbox"])').setValue('k');
+        await wrapper.findAll('input[type="checkbox"]')[0].setValue(true);
+        await wrapper.find('form').trigger('submit');
+        await flushPromises();
+        expect(wrapper.find('[role="alert"]').text()).toContain('Connection lost');
+        expect(wrapper.text()).not.toContain('vrcx_');
+    });
+
+    it('shows an error when revoking fails, and keeps the key listed', async () => {
+        rpc.mockImplementation(async (_target, method) =>
+            method === 'revoke' ? { ok: false, error: 'Disk full' } : { ok: true, result: baseKeys }
+        );
+        const wrapper = await mountOpen();
+        const revokeButton = () => wrapper.findAll('button').find((b) => b.text().includes('headless_api_keys_revoke'));
+        await revokeButton().trigger('click');
+        await revokeButton().trigger('click');
+        await flushPromises();
+        expect(wrapper.find('[role="alert"]').text()).toContain('Disk full');
+        expect(wrapper.text()).toContain('abcd1234');
+    });
+
+    it('keeps a just-created key visible if refreshing the list fails afterwards', async () => {
+        let listCalls = 0;
+        rpc.mockImplementation(async (_target, method) => {
+            if (method === 'create') {
+                return { ok: true, result: { key: 'vrcx_abcd1234_secret', record: {} } };
+            }
+            listCalls += 1;
+            return listCalls === 1 ? { ok: true, result: baseKeys } : { ok: false, error: 'Server went away' };
+        });
+        const wrapper = await mountOpen();
+        await wrapper.find('input:not([type="checkbox"])').setValue('k');
+        await wrapper.findAll('input[type="checkbox"]')[0].setValue(true);
+        await wrapper.find('form').trigger('submit');
+        await flushPromises();
+        expect(wrapper.text()).toContain('vrcx_abcd1234_secret');
+        expect(wrapper.find('[role="alert"]').text()).toContain('Server went away');
     });
 });
