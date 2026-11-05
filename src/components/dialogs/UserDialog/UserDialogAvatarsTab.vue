@@ -23,7 +23,7 @@
                     <RefreshCw v-else />
                 </Button>
                 <span class="ml-1.5 text-sm">{{
-                    t('dialog.user.avatars.total_count', { count: userDialogAvatars.length })
+                    t('dialog.user.avatars.total_count', { count: allUserDialogAvatars.length })
                 }}</span>
             </div>
             <div class="flex items-center">
@@ -69,9 +69,9 @@
             <template v-if="filteredUserDialogAvatars.length">
                 <div
                     v-for="avatar in filteredUserDialogAvatars"
-                    :key="avatar.id"
+                    :key="avatar.id || avatar.$seenFileId"
                     class="box-border flex items-center p-1.5 text-[13px] cursor-pointer w-[167px] hover:rounded-[25px_5px_5px_25px]"
-                    @click="showAvatarDialog(avatar.id)">
+                    @click="openAvatar(avatar)">
                     <div class="relative inline-block flex-none size-9 mr-2.5">
                         <Avatar class="size-9">
                             <AvatarImage
@@ -131,7 +131,9 @@
     const { userDialog, currentUser } = storeToRefs(userStore);
     const { sortUserDialogAvatars, sortUserDialogLicensedAvatars } = userStore;
 
-    import { showAvatarDialog, lookupAvatars } from '../../../coordinators/avatarCoordinator';
+    import { showAvatarDialog, showAvatarAuthorDialog, lookupAvatars } from '../../../coordinators/avatarCoordinator';
+    import { database } from '../../../services/database';
+    import { extractFileId } from '../../../shared/utils';
     const { cachedAvatars } = useAvatarStore();
 
     const { avatarRemoteDatabase } = storeToRefs(useAdvancedSettingsStore());
@@ -148,9 +150,21 @@
         }
         return avatars;
     });
+    // Avatars this author was seen being worn in the feed, from the server's
+    // `seen_avatars` index. The feed has no avatar ids, so these are keyed by image
+    // file id and only resolved to an avatar (cache, then the external database)
+    // when clicked. Fork addition, see docs/patch-inventory.md.
+    const seenAvatars = ref([]);
+    const allUserDialogAvatars = computed(() => {
+        if (!seenAvatars.value.length) {
+            return userDialogAvatars.value;
+        }
+        const known = new Set(userDialogAvatars.value.map((avatar) => extractFileId(avatar.imageUrl)));
+        return [...userDialogAvatars.value, ...seenAvatars.value.filter((avatar) => !known.has(avatar.$seenFileId))];
+    });
     const avatarSearchQuery = ref('');
     const filteredUserDialogAvatars = computed(() => {
-        const avatars = userDialogAvatars.value;
+        const avatars = allUserDialogAvatars.value;
         const query = avatarSearchQuery.value.trim().toLowerCase();
         if (!query) {
             return avatars;
@@ -162,13 +176,53 @@
         () => userDialog.value.id,
         () => {
             avatarSearchQuery.value = '';
+            seenAvatars.value = [];
         }
     );
 
     /**
      * @param userId
      */
+    async function loadSeenAvatars(userId) {
+        if (userId === currentUser.value.id) {
+            return; // own avatars come from the API in full
+        }
+        try {
+            const rows = await database.getSeenAvatarsByOwner(userId);
+            if (userDialog.value.id !== userId) {
+                return;
+            }
+            seenAvatars.value = rows.map((row) => ({
+                id: '',
+                $seenFileId: row.fileId,
+                authorId: row.ownerId,
+                name: row.name,
+                imageUrl: row.imageUrl,
+                thumbnailImageUrl: row.thumbnailImageUrl,
+                releaseStatus: ''
+            }));
+        } catch (err) {
+            // e.g. a server older than this feature: the tab just shows what it had.
+            console.warn('Failed to load seen avatars', err);
+        }
+    }
+
+    /**
+     * @param avatar
+     */
+    function openAvatar(avatar) {
+        if (avatar.id) {
+            showAvatarDialog(avatar.id);
+        } else {
+            showAvatarAuthorDialog(avatar.authorId, avatar.authorId, avatar.imageUrl);
+        }
+    }
+
+    /**
+     * @param userId
+     */
     function setUserDialogAvatars(userId) {
+        loadSeenAvatars(userId);
         const avatars = new Set();
         userDialogAvatars.value.forEach((avatar) => {
             avatars.add(avatar.id);

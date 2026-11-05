@@ -303,7 +303,7 @@ pnpm run server -- migrate --db=/tmp/parity.sqlite3
 pnpm run server -- tables --db=/tmp/parity.sqlite3
 ```
 
-Diff `sqlite_schema` against the same database migrated by the desktop build. They must be identical.
+Diff `sqlite_schema` against the same database migrated by the desktop build. They must be identical, except for the server-owned `seen_avatars`/`seen_avatars_meta` tables (`server/src/seen-avatars.js`), which only exist once a user has logged in and which the desktop app ignores.
 
 ---
 
