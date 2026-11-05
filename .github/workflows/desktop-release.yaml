@@ -37,11 +37,15 @@ jobs:
     build:
         name: Build (${{ matrix.id }})
         runs-on: ${{ matrix.runs-on }}
+        # A hung step (a network call that never returns) would otherwise run for
+        # GitHub's 6 hour default. Per leg, about 4x the slowest successful run seen.
+        timeout-minutes: ${{ matrix.timeout }}
         strategy:
             fail-fast: false
             matrix:
                 include:
                     - id: linux-x64
+                      timeout: 15
                       runs-on: ubuntu-latest
                       csproj: Dotnet/VRCX-Electron.csproj
                       dotnet-platform: x64
@@ -49,6 +53,7 @@ jobs:
                       electron-script: build-electron
                       os-family: linux
                     - id: linux-arm64
+                      timeout: 15
                       runs-on: ubuntu-latest
                       csproj: Dotnet/VRCX-Electron.csproj
                       dotnet-platform: arm64
@@ -61,6 +66,7 @@ jobs:
                     # automation and signing are what's new here, not the
                     # build mechanics themselves.
                     - id: win-x64
+                      timeout: 25
                       runs-on: windows-latest
                       csproj: Dotnet/VRCX-Electron.csproj
                       dotnet-platform: x64
@@ -75,6 +81,7 @@ jobs:
                     # actually available before trusting this leg; if not,
                     # the fallback is `-r win-arm64` on windows-latest.
                     - id: win-arm64
+                      timeout: 40
                       runs-on: windows-11-arm
                       csproj: Dotnet/VRCX-Electron.csproj
                       dotnet-platform: arm64
@@ -104,6 +111,7 @@ jobs:
             # nuget.org.
 
             - name: Build the .NET side (${{ matrix.id }})
+              timeout-minutes: 10
               run: |
                   set -euo pipefail
                   # Every leg passes an explicit RID: since upstream consolidated
@@ -189,6 +197,7 @@ jobs:
 
     publish-release:
         name: Publish release
+        timeout-minutes: 10
         needs: [build]
         if: ${{ !cancelled() && needs.build.result == 'success' && startsWith(github.ref, 'refs/tags/v') }}
         runs-on: ubuntu-latest
