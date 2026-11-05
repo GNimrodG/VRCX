@@ -23,7 +23,7 @@
                     <RefreshCw v-else />
                 </Button>
                 <span class="ml-1.5 text-sm">{{
-                    t('dialog.user.avatars.total_count', { count: allUserDialogAvatars.length })
+                    t('dialog.user.avatars.total_count', { count: liveAvatarCount })
                 }}</span>
             </div>
             <div class="flex items-center">
@@ -70,7 +70,13 @@
                 <div
                     v-for="avatar in filteredUserDialogAvatars"
                     :key="avatar.id || avatar.$seenFileId"
-                    class="box-border flex items-center p-1.5 text-[13px] cursor-pointer w-[167px] hover:rounded-[25px_5px_5px_25px]"
+                    class="box-border flex items-center p-1.5 text-[13px] w-[167px]"
+                    :class="
+                        avatar.$gone ? 'opacity-40 cursor-default' : 'cursor-pointer hover:rounded-[25px_5px_5px_25px]'
+                    "
+                    :title="
+                        avatar.$gone ? 'No longer in your avatar list (deleted, or replaced by a newer upload)' : ''
+                    "
                     @click="openAvatar(avatar)">
                     <div class="relative inline-block flex-none size-9 mr-2.5">
                         <Avatar class="size-9">
@@ -153,15 +159,31 @@
     // Avatars this author was seen being worn in the feed, from the server's
     // `seen_avatars` index. The feed has no avatar ids, so these are keyed by image
     // file id and only resolved to an avatar (cache, then the external database)
-    // when clicked. Fork addition, see docs/patch-inventory.md.
+    // when clicked. For your own avatars the API list is authoritative, so entries
+    // missing from it are shown faded (`$gone`) once it has loaded; no extra
+    // requests are made to decide that. Fork addition, see docs/patch-inventory.md.
     const seenAvatars = ref([]);
     const allUserDialogAvatars = computed(() => {
         if (!seenAvatars.value.length) {
             return userDialogAvatars.value;
         }
-        const known = new Set(userDialogAvatars.value.map((avatar) => extractFileId(avatar.imageUrl)));
-        return [...userDialogAvatars.value, ...seenAvatars.value.filter((avatar) => !known.has(avatar.$seenFileId))];
+        const isOwn = userDialog.value.ref.id === currentUser.value.id;
+        if (isOwn && (userDialog.value.isAvatarsLoading || userDialog.value.avatarReleaseStatus !== 'all')) {
+            return userDialogAvatars.value;
+        }
+        const knownFiles = new Set(userDialogAvatars.value.map((avatar) => extractFileId(avatar.imageUrl)));
+        // A re-upload gets a new image file, so also match by name to avoid listing
+        // old versions of avatars you still have as deleted.
+        const knownNames = new Set(userDialogAvatars.value.map((avatar) => (avatar.name || '').toLowerCase()));
+        return [
+            ...userDialogAvatars.value,
+            ...seenAvatars.value.filter(
+                (avatar) =>
+                    !knownFiles.has(avatar.$seenFileId) && !(isOwn && knownNames.has((avatar.name || '').toLowerCase()))
+            )
+        ];
     });
+    const liveAvatarCount = computed(() => allUserDialogAvatars.value.filter((avatar) => !avatar.$gone).length);
     const avatarSearchQuery = ref('');
     const filteredUserDialogAvatars = computed(() => {
         const avatars = allUserDialogAvatars.value;
@@ -184,9 +206,7 @@
      * @param userId
      */
     async function loadSeenAvatars(userId) {
-        if (userId === currentUser.value.id) {
-            return; // own avatars come from the API in full
-        }
+        const isOwn = userId === currentUser.value.id;
         try {
             const rows = await database.getSeenAvatarsByOwner(userId);
             if (userDialog.value.id !== userId) {
@@ -195,6 +215,7 @@
             seenAvatars.value = rows.map((row) => ({
                 id: '',
                 $seenFileId: row.fileId,
+                $gone: isOwn,
                 authorId: row.ownerId,
                 name: row.name,
                 imageUrl: row.imageUrl,
@@ -211,6 +232,9 @@
      * @param avatar
      */
     function openAvatar(avatar) {
+        if (avatar.$gone) {
+            return;
+        }
         if (avatar.id) {
             showAvatarDialog(avatar.id);
         } else {
