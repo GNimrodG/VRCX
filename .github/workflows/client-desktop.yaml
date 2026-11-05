@@ -49,12 +49,16 @@ jobs:
               with:
                   dotnet-version: '10.0.x'
 
+            # Same key as desktop-release.yaml's linux-x64 leg
+            # (`<os>-<leg id>-nuget-<csproj hash>`): this job runs the identical
+            # build (same project, -r linux-x64), so both restore and save one
+            # ~765 MiB cache entry instead of each keeping its own copy.
             - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
               with:
                   path: ~/.nuget/packages
-                  key: ${{ runner.os }}-nuget-${{ hashFiles('**/Dotnet/VRCX-Electron.csproj') }}
+                  key: ${{ runner.os }}-linux-x64-nuget-${{ hashFiles('**/Dotnet/VRCX-Electron.csproj') }}
                   restore-keys: |
-                      ${{ runner.os }}-nuget-
+                      ${{ runner.os }}-linux-x64-nuget-
 
             # Compiles AppApiElectron/Discord/LogWatcher/AssetBundleManager/
             # AppApiVrElectron — the real native-capability bindings phase 5
