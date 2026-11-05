@@ -6,7 +6,7 @@
  */
 import { createServer } from 'node:http';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { CookieStore } from '../src/cookies.js';
 import { describeFetchError, WebApiShim } from '../src/shims/webapi.js';
@@ -103,6 +103,56 @@ describe('WebApiShim', () => {
         await createShim().Execute({ url: `${origin}/echo` });
         expect(received.at(-1).headers['user-agent']).toBe('VRCX 2026.07.18');
     });
+
+    it('identifies as VRCX-Headless with contact info to api.avtrdb.com only', async () => {
+        const seen = [];
+        vi.stubEnv('AVTRDB_CONTACT', 'https://went.tf#contact');
+        const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(
+            async (url, init) => {
+                seen.push([String(url), init.headers['User-Agent']]);
+                return new Response('[]');
+            }
+        );
+        try {
+            await createShim().Execute({
+                url: 'https://api.avtrdb.com/v3/avatar/search/vrcx?authorId=x'
+            });
+            await createShim().Execute({
+                url: 'https://api.vrchat.cloud/api/1/config'
+            });
+        } finally {
+            spy.mockRestore();
+            vi.unstubAllEnvs();
+        }
+        expect(seen[0][1]).toMatch(
+            /^VRCX-Headless\/2026\.07\.18 \(.+\)$/
+        );
+        expect(seen[1][1]).toBe('VRCX 2026.07.18');
+    });
+
+    it.each([undefined, '', '  ', 'https://example.com#contact'])(
+        'does not query api.avtrdb.com without a real AVTRDB_CONTACT (%j)',
+        async (contact) => {
+            vi.stubEnv('AVTRDB_CONTACT', contact);
+            if (contact === undefined) {
+                delete process.env.AVTRDB_CONTACT;
+            }
+            const spy = vi
+                .spyOn(globalThis, 'fetch')
+                .mockResolvedValue(new Response('[]'));
+            try {
+                const result = await createShim().Execute({
+                    url: 'https://api.avtrdb.com/v3/avatar/search/vrcx?authorId=x'
+                });
+                expect(spy).not.toHaveBeenCalled();
+                expect(result.Item1).toBe(-1);
+                expect(result.Item2).toMatch(/AVTRDB_CONTACT/);
+            } finally {
+                spy.mockRestore();
+                vi.unstubAllEnvs();
+            }
+        }
+    );
 
     it('puts Content-Type on the body and leaves other headers alone', async () => {
         await createShim().Execute({

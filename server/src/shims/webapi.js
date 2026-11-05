@@ -144,6 +144,36 @@ export class WebApiShim {
     }
 
     /**
+     * api.avtrdb.com requires every client to identify itself with app name,
+     * version and contact details (https://avtrdb.com/faq#06_public_use) and
+     * blocks the bare `VRCX <version>` agent, which carries no contact. The
+     * headless server is its own client, so it identifies as such there, using
+     * `AVTRDB_CONTACT` (email/Discord/URL). Without a real value (unset, empty
+     * or an example.com placeholder) the request is not sent at all: it would
+     * only be blocked, and an unreachable contact is exactly what they ban
+     * for. Other hosts, VRChat included, keep the stock VRCX agent.
+     *
+     * @param {unknown} url
+     * @returns {string | null} `null` means "do not send this request"
+     */
+    #userAgentFor(url) {
+        try {
+            const host = new URL(String(url)).hostname;
+            if (host === 'avtrdb.com' || host.endsWith('.avtrdb.com')) {
+                const version = this.#userAgent.replace(/^VRCX (Nightly )?/, '');
+                const contact = (process.env.AVTRDB_CONTACT ?? '').trim();
+                if (!contact || /example\.(com|org|net)/i.test(contact)) {
+                    return null;
+                }
+                return `VRCX-Headless/${version} (${contact})`;
+            }
+        } catch {
+            // malformed URL: fetch will report it
+        }
+        return this.#userAgent;
+    }
+
+    /**
      * @param {Record<string, any>} options
      * @returns {Promise<{ Item1: number, Item2: string }>}
      */
@@ -151,8 +181,16 @@ export class WebApiShim {
         const method = String(options.method ?? 'GET').toUpperCase();
         const headers = parseHeaders(options.headers);
 
+        const userAgent = this.#userAgentFor(options.url);
+        if (userAgent === null) {
+            return {
+                Item1: -1,
+                Item2: 'Avatar database lookups are disabled: api.avtrdb.com requires a contact in the User-Agent. Set AVTRDB_CONTACT on the server (email, Discord or URL).'
+            };
+        }
+
         /** @type {Record<string, string>} */
-        const outgoing = { 'User-Agent': this.#userAgent };
+        const outgoing = { 'User-Agent': userAgent };
         let contentType = null;
         for (const [key, value] of Object.entries(headers)) {
             if (value === undefined || value === null) {

@@ -177,6 +177,7 @@ keys and a read-only `/api/v1/*` API, optionally on its own public-only port
 | ----------------------- | -------------------------------------------------------- |
 | `VRCX_DATABASE`        | Absolute path to `VRCX.sqlite3`                         |
 | `VRCX_DATA_DIR`        | VRCX app data directory (`/data` in the container)      |
+| `AVTRDB_CONTACT`       | Your contact (email, Discord or URL), sent in the User-Agent to api.avtrdb.com. Required for avatar-database lookups, see [avtrDB lookups](#avtrdb-avatar-database-lookups) |
 | `VRCX_LOG_LEVEL`       | `debug` \| `info` \| `warn` \| `error` (default `info`) |
 | `VRCHAT_PASSWORD`      | Password for a non-interactive `login`                  |
 | `VRCHAT_2FA_CODE`      | Two-factor code for a non-interactive `login`           |
@@ -189,6 +190,31 @@ keys and a read-only `/api/v1/*` API, optionally on its own public-only port
 | `HTTPS_PROXY`          | Honoured when `NODE_USE_ENV_PROXY=1` (set in the image) |
 
 ---
+
+## avtrDB avatar database lookups
+
+The avatar tab on a user's profile and the avatar search query
+[avtrDB](https://avtrdb.com) (`api.avtrdb.com`). Its operator requires every
+client to identify itself with an application name, a version and **contact
+information**, and blocks clients it can't reach. The rules are in the
+[avtrDB FAQ, "General Use / SLA / CDN / Scraping / Agentic Use"](https://avtrdb.com/faq#06_public_use).
+Summary of what applies here:
+
+- Personal, non-commercial use only, unless agreed otherwise.
+- The User-Agent must look like `app/1.2.3 (contact@me.here)`. The server sends
+  `VRCX-Headless/<version> (<AVTRDB_CONTACT>)`; the stock `VRCX <version>` agent
+  has no contact and gets a Cloudflare 403 HTML page (which used to surface as a
+  `JSON.parse` error on `<`).
+- Endpoints are rate-limited, and the CDN (avatar images) should not be used
+  without asking.
+- All automated/agentic access, including from coding assistants, is prohibited
+  unless agreed with the operator first.
+
+Set `AVTRDB_CONTACT` to something the operator can actually reach. **Until you
+do, avatar-database lookups are disabled**: the server sends no request at all
+and the lookup fails with an error naming this variable. An unset, empty or
+`example.com`/`.org`/`.net` value counts as not set. Requests to every other host,
+VRChat included, are unaffected.
 
 ## Using an existing VRCX install
 
