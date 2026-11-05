@@ -61,6 +61,14 @@ Database:
                         as \`migrate\`, since \`serve\` also caches these
                         tables in memory and won't see the reset until it
                         restarts anyway.
+  dedupe-group-changes [--apply] [--force]
+                        Remove duplicate \`groupChange\` notifications (same
+                        group + message within 10s, written once per connected
+                        client before the feed-dedup fix). Dry run unless
+                        --apply is given; --apply first writes a
+                        \`.pre-dedupe-<timestamp>.bak\` copy next to the
+                        database. Refuses while \`serve\`/\`pipeline\` hold the
+                        write lock, unless --force is given.
   check-update [--force] [--json]
                         Check GitHub for a newer upstream VRCX release and
                         whether this fork already has a matching release.
@@ -317,6 +325,64 @@ async function main() {
                 '\nDone. These tables rebuild automatically from gamelog_location/feed_online_offline ' +
                     'the next time each dialog is opened.'
             );
+        }
+        handle.close();
+        return 0;
+    }
+
+    if (command === 'dedupe-group-changes') {
+        const handle = await openDatabase({ ...openOptions, create: false });
+        const lockState = isLocked(handle.databasePath);
+        if (lockState.locked && flags.force !== true) {
+            handle.close();
+            throw new Error(
+                `${handle.databasePath} is currently held by pid ${lockState.pid} (serve/pipeline) — ` +
+                    'stop it first, or pass --force to run anyway.'
+            );
+        }
+        const windowMs = 10_000;
+        const tableNames = handle.sqlite
+            .Execute(
+                "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE '%\\_notifications' ESCAPE '\\'"
+            )
+            .map((row) => String(row[0]));
+        /** @type {Array<[string, string[]]>} */
+        const plan = [];
+        for (const name of tableNames) {
+            const quoted = `"${name.replaceAll('"', '""')}"`;
+            const rows = handle.sqlite.Execute(
+                `SELECT id, created_at, sender_user_id, message FROM ${quoted} WHERE type = 'groupChange' ORDER BY created_at, id`
+            );
+            const lastKept = new Map();
+            const doomed = [];
+            for (const [id, createdAt, sender, message] of rows) {
+                const key = `${sender}\u0000${message}`;
+                const time = Date.parse(createdAt);
+                const prev = lastKept.get(key);
+                if (prev !== undefined && Math.abs(time - prev) <= windowMs) {
+                    doomed.push(String(id));
+                } else {
+                    lastKept.set(key, time);
+                }
+            }
+            console.log(`${name}: ${rows.length} groupChange row(s), ${doomed.length} duplicate(s)`);
+            plan.push([quoted, doomed]);
+        }
+        const total = plan.reduce((sum, [, ids]) => sum + ids.length, 0);
+        if (flags.apply !== true) {
+            console.log(`\nDry run: ${total} row(s) would be deleted. Re-run with --apply to delete them.`);
+        } else if (total > 0) {
+            const backup = `${handle.databasePath}.pre-dedupe-${new Date().toISOString().replaceAll(/[:.]/g, '-')}.bak`;
+            handle.sqlite.ExecuteNonQuery(`VACUUM INTO '${backup.replaceAll("'", "''")}'`);
+            console.log(`\nBackup written to ${backup}`);
+            for (const [quoted, ids] of plan) {
+                for (const id of ids) {
+                    handle.sqlite.ExecuteNonQuery(`DELETE FROM ${quoted} WHERE id = @id`, { '@id': id });
+                }
+            }
+            console.log(`Deleted ${total} duplicate row(s).`);
+        } else {
+            console.log('\nNothing to delete.');
         }
         handle.close();
         return 0;

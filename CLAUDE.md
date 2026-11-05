@@ -317,6 +317,7 @@ pnpm run server -- migrate [--user=usr_...]  # run the JS migration layer
 pnpm run server -- tables                    # row counts per table
 pnpm run server -- query "SELECT ..."        # read-only, positional rows
 pnpm run server -- reset-activity-cache      # clear cached Activity/Overlap tables (rebuild from source data)
+pnpm run server -- dedupe-group-changes [--apply]  # remove duplicate groupChange notifications (dry run by default, backs up first)
 pnpm run server -- login                     # VRChat login, prompts for 2FA
 pnpm run server -- whoami                    # check the stored session
 pnpm run server -- pipeline                  # stream VRChat events

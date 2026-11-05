@@ -190,4 +190,31 @@ describe('friend log history write deduplication', () => {
 
         expect(friendLogRowCount(friendUserId)).toBe(2);
     });
+
+    describe('groupChange notifications', () => {
+        const count = (message) =>
+            handle.sqlite.Execute(
+                `SELECT COUNT(*) FROM ${handle.dbVars.userPrefix}_notifications WHERE message = @message`,
+                { '@message': message }
+            )[0][0];
+        const make = (id, created_at, message) => ({
+            id,
+            created_at,
+            type: 'groupChange',
+            senderUserId: 'grp_test',
+            senderUsername: 'Test Group',
+            message
+        });
+
+        it('collapses the same change synthesised with different random ids', async () => {
+            await handle.database.addNotificationToDatabase(make('a1', '2026-08-18T06:00:00.000Z', 'Role X added'));
+            await handle.database.addNotificationToDatabase(make('b2', '2026-08-18T06:00:00.600Z', 'Role X added'));
+            expect(count('Role X added')).toBe(1);
+        });
+
+        it('keeps a different change for the same group', async () => {
+            await handle.database.addNotificationToDatabase(make('c3', '2026-08-18T06:00:00.000Z', 'Role Y added'));
+            expect(count('Role Y added')).toBe(1);
+        });
+    });
 });

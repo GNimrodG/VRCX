@@ -80,6 +80,19 @@ const DEDUP_CONFIGS = {
             location: entry.location
         })
     },
+    // `groupChange` notifications are synthesised locally by `applyGroup`
+    // (`src/coordinators/groupCoordinator.js`) with a `Math.random()` id, on the
+    // server and on every connected client, so `INSERT OR IGNORE` on the id never
+    // collapses them. Real VRChat notifications carry server ids and are left alone.
+    addNotificationToDatabase: {
+        table: 'notifications',
+        only: (entry) => entry.type === 'groupChange',
+        scope: (entry) => ({ sender_user_id: entry.senderUserId }),
+        fields: (entry) => ({
+            type: entry.type,
+            message: entry.message
+        })
+    },
     addFriendLogHistory: {
         table: 'friend_log_history',
         fields: (entry) => ({
@@ -93,15 +106,19 @@ const DEDUP_CONFIGS = {
     }
 };
 
-async function findRecentDuplicate(table, userPrefix, fields, entry) {
+async function findRecentDuplicate(table, userPrefix, fields, entry, scope) {
     const params = {
-        '@created_at': entry.created_at,
-        '@user_id': entry.userId
+        '@created_at': entry.created_at
     };
+    const clauses = [];
+    for (const [column, value] of Object.entries(scope ?? { user_id: entry.userId })) {
+        clauses.push(`${column} = @${column}`);
+        params[`@${column}`] = value;
+    }
     // `column IS @param` (not `=`) so a NULL field value still matches a
     // NULL column -- several of these fields (e.g. previous_location on a
     // user's first-ever GPS entry) are legitimately NULL.
-    const clauses = ['user_id = @user_id', "ABS(strftime('%s', @created_at) - strftime('%s', created_at)) <= " + DEDUP_WINDOW_SECONDS];
+    clauses.push("ABS(strftime('%s', @created_at) - strftime('%s', created_at)) <= " + DEDUP_WINDOW_SECONDS);
     for (const [column, value] of Object.entries(fields)) {
         const param = `@${column}`;
         clauses.push(`${column} IS ${param}`);
@@ -127,11 +144,15 @@ export function installFeedDedup(database, dbVars) {
     for (const [method, config] of Object.entries(DEDUP_CONFIGS)) {
         const original = database[method].bind(database);
         database[method] = async function feedDedupWrapper(entry) {
+            if (config.only && !config.only(entry)) {
+                return original(entry);
+            }
             const existingId = await findRecentDuplicate(
                 config.table,
                 dbVars.userPrefix,
                 config.fields(entry),
-                entry
+                entry,
+                config.scope?.(entry)
             );
             if (existingId !== null) {
                 // Upstream's feed writes return the persisted row (with rowId) and
