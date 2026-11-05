@@ -1,10 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 
 import HeadlessApiKeysDialog from '../HeadlessApiKeysDialog.vue';
 
 vi.mock('vue-i18n', () => ({
-    useI18n: () => ({ t: (key, params) => (params ? `${key}:${JSON.stringify(params)}` : key) })
+    useI18n: () => ({ t: (key) => key })
 }));
 
 // Render the dialog inline: the real one portals out of the wrapper.
@@ -16,144 +16,149 @@ vi.mock('@/components/ui/dialog', () => ({
     DialogDescription: { template: '<p><slot /></p>' }
 }));
 
+const SERVER = 'https://pi.example:9010';
 const rpc = vi.fn();
-// Electron's ipcRenderer.invoke structured-clones its arguments; a reactive
-// Proxy in them throws DataCloneError, which a bare mock would never notice.
-const ipcLikeRpc = (...args) => {
-    structuredClone(args);
-    return rpc(...args);
-};
-const baseKeys = {
-    keys: [
-        {
-            id: 'abcd1234',
-            name: 'overlay',
-            scopes: ['profile:read'],
-            createdAt: '2026-11-01T00:00:00.000Z',
-            expiresAt: null,
-            lastUsedAt: null
-        }
-    ],
-    scopes: { 'profile:read': 'Current user', 'users:read': 'Cached users' }
-};
-
-beforeEach(() => {
-    rpc.mockReset();
-    globalThis.window.vrcxDesktopAgent = { rpc: ipcLikeRpc };
-});
+let wrapper;
 
 async function mountOpen() {
-    const wrapper = mount(HeadlessApiKeysDialog, { props: { open: false } });
+    wrapper = mount(HeadlessApiKeysDialog, { props: { open: false }, attachTo: document.body });
     await wrapper.setProps({ open: true });
     await flushPromises();
     return wrapper;
 }
 
-describe('HeadlessApiKeysDialog.vue', () => {
-    it('lists keys and scopes from the server RPC', async () => {
-        rpc.mockResolvedValue({ ok: true, result: baseKeys });
-        const wrapper = await mountOpen();
-        expect(rpc).toHaveBeenCalledWith('apikeys', 'list', []);
-        expect(wrapper.text()).toContain('overlay');
-        expect(wrapper.text()).toContain('abcd1234');
-        expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(2);
+/**
+ * @param {object} init MessageEvent fields
+ */
+function sendMessage(init) {
+    window.dispatchEvent(new MessageEvent('message', init));
+    return flushPromises();
+}
+
+afterEach(() => {
+    wrapper?.unmount();
+    wrapper = null;
+    delete window.vrcxDesktopAgent;
+    vi.unstubAllGlobals();
+    document.documentElement.classList.remove('dark');
+});
+
+describe('HeadlessApiKeysDialog.vue (desktop)', () => {
+    beforeEach(() => {
+        rpc.mockReset();
+        rpc.mockResolvedValue({ ok: true, result: { keys: [], scopes: {} } });
+        window.vrcxDesktopAgent = { getServerStatus: async () => ({ url: `${SERVER}/` }), rpc };
     });
 
-    it('says the API is disabled when the server has no apikeys target', async () => {
+    it("frames the connected server's own page, passing the theme", async () => {
+        document.documentElement.classList.add('dark');
+        await mountOpen();
+        expect(wrapper.find('iframe').attributes('src')).toBe(`${SERVER}/admin/api-keys?bridge=1&theme=dark`);
+    });
+
+    it('does not frame anything when the server has the API disabled', async () => {
         rpc.mockResolvedValue({ ok: false, error: 'RPC target not available: apikeys' });
-        const wrapper = await mountOpen();
+        await mountOpen();
+        expect(wrapper.find('iframe').exists()).toBe(false);
         expect(wrapper.text()).toContain('status_bar.headless_api_keys_disabled');
-        expect(wrapper.find('form').exists()).toBe(false);
     });
 
-    it('creates a key, shows it once, and forgets it when closed', async () => {
-        rpc.mockImplementation(async (_target, method) =>
-            method === 'create'
-                ? { ok: true, result: { key: 'vrcx_abcd1234_secret', record: {} } }
-                : { ok: true, result: baseKeys }
-        );
-        const wrapper = await mountOpen();
-        await wrapper.find('input:not([type="checkbox"])').setValue('my key');
-        await wrapper.findAll('input[type="checkbox"]')[0].setValue(true);
-        await wrapper.find('form').trigger('submit');
-        await flushPromises();
-        const create = rpc.mock.calls.find((c) => c[1] === 'create');
-        expect(create[2][0]).toMatchObject({ name: 'my key', scopes: ['profile:read'], expiresAt: null });
-        expect(wrapper.text()).toContain('vrcx_abcd1234_secret');
+    it('shows an error instead of an empty frame when the probe fails', async () => {
+        rpc.mockResolvedValue({ ok: false, error: 'Not authenticated with the VRCX server' });
+        await mountOpen();
+        expect(wrapper.find('iframe').exists()).toBe(false);
+        expect(wrapper.find('[role="alert"]').text()).toContain('Not authenticated');
+    });
 
+    it('forwards the three key methods from its own frame and answers it', async () => {
+        await mountOpen();
+        const contentWindow = wrapper.find('iframe').element.contentWindow;
+        const post = vi.spyOn(contentWindow, 'postMessage');
+        rpc.mockClear();
+        rpc.mockResolvedValueOnce({ ok: true, result: { key: 'vrcx_x_y', record: {} } });
+
+        await sendMessage({
+            data: {
+                type: 'vrcx-apikeys-rpc',
+                id: 7,
+                method: 'create',
+                args: [{ name: 'n', scopes: ['profile:read'] }]
+            },
+            origin: SERVER,
+            source: contentWindow
+        });
+
+        expect(rpc).toHaveBeenCalledWith('apikeys', 'create', [{ name: 'n', scopes: ['profile:read'] }]);
+        // Answered to the server's origin only, never '*'.
+        expect(post).toHaveBeenCalledWith(
+            { type: 'vrcx-apikeys-rpc-result', id: 7, result: { ok: true, result: { key: 'vrcx_x_y', record: {} } } },
+            SERVER
+        );
+    });
+
+    it('turns a rejected call into an error reply instead of leaving the frame hanging', async () => {
+        await mountOpen();
+        const contentWindow = wrapper.find('iframe').element.contentWindow;
+        const post = vi.spyOn(contentWindow, 'postMessage');
+        rpc.mockRejectedValueOnce(new Error('Connection lost'));
+        await sendMessage({
+            data: { type: 'vrcx-apikeys-rpc', id: 1, method: 'list', args: [] },
+            origin: SERVER,
+            source: contentWindow
+        });
+        expect(post.mock.calls[0][0].result).toEqual({ ok: false, error: 'Connection lost' });
+    });
+
+    it('ignores messages from other windows, other origins, other methods or other shapes', async () => {
+        await mountOpen();
+        const contentWindow = wrapper.find('iframe').element.contentWindow;
+        rpc.mockClear();
+        const ok = { type: 'vrcx-apikeys-rpc', id: 1, method: 'list', args: [] };
+
+        await sendMessage({ data: ok, origin: SERVER, source: window }); // not our frame
+        await sendMessage({ data: ok, origin: 'https://evil.example', source: contentWindow }); // wrong origin
+        await sendMessage({ data: { ...ok, method: 'getString' }, origin: SERVER, source: contentWindow }); // not a key method
+        await sendMessage({ data: { ...ok, method: 'constructor' }, origin: SERVER, source: contentWindow });
+        await sendMessage({ data: { ...ok, type: 'other' }, origin: SERVER, source: contentWindow });
+        await sendMessage({ data: null, origin: SERVER, source: contentWindow });
+
+        expect(rpc).not.toHaveBeenCalled();
+    });
+
+    it('stops serving the frame, and drops it, once closed', async () => {
+        await mountOpen();
+        const contentWindow = wrapper.find('iframe').element.contentWindow;
         await wrapper.setProps({ open: false });
-        await wrapper.setProps({ open: true });
         await flushPromises();
-        expect(wrapper.text()).not.toContain('vrcx_abcd1234_secret');
-    });
-
-    it('revokes only on the second click', async () => {
-        rpc.mockResolvedValue({ ok: true, result: baseKeys });
-        const wrapper = await mountOpen();
-        const revokeButton = () => wrapper.findAll('button').find((b) => b.text().includes('headless_api_keys_revoke'));
-        await revokeButton().trigger('click');
-        expect(rpc.mock.calls.some((c) => c[1] === 'revoke')).toBe(false);
-        await revokeButton().trigger('click');
-        await flushPromises();
-        expect(rpc).toHaveBeenCalledWith('apikeys', 'revoke', ['abcd1234']);
-    });
-
-    it('shows the server error when creating a key fails', async () => {
-        rpc.mockImplementation(async (_target, method) =>
-            method === 'create' ? { ok: false, error: 'Unknown scope(s): nope' } : { ok: true, result: baseKeys }
-        );
-        const wrapper = await mountOpen();
-        await wrapper.find('input:not([type="checkbox"])').setValue('k');
-        await wrapper.findAll('input[type="checkbox"]')[0].setValue(true);
-        await wrapper.find('form').trigger('submit');
-        await flushPromises();
-        expect(wrapper.find('[role="alert"]').text()).toContain('Unknown scope(s): nope');
-    });
-
-    it('shows an error when the call itself rejects, instead of doing nothing', async () => {
-        rpc.mockImplementation(async (_target, method) => {
-            if (method === 'create') {
-                throw new Error('Connection lost');
-            }
-            return { ok: true, result: baseKeys };
+        rpc.mockClear();
+        await sendMessage({
+            data: { type: 'vrcx-apikeys-rpc', id: 1, method: 'list', args: [] },
+            origin: SERVER,
+            source: contentWindow
         });
-        const wrapper = await mountOpen();
-        await wrapper.find('input:not([type="checkbox"])').setValue('k');
-        await wrapper.findAll('input[type="checkbox"]')[0].setValue(true);
-        await wrapper.find('form').trigger('submit');
-        await flushPromises();
-        expect(wrapper.find('[role="alert"]').text()).toContain('Connection lost');
-        expect(wrapper.text()).not.toContain('vrcx_');
+        expect(rpc).not.toHaveBeenCalled();
+        expect(wrapper.find('iframe').exists()).toBe(false);
+    });
+});
+
+describe('HeadlessApiKeysDialog.vue (web client)', () => {
+    it('frames the same-origin page when the API is enabled', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 200, ok: true }));
+        await mountOpen();
+        expect(fetch).toHaveBeenCalledWith('/api/v1/openapi.json');
+        expect(wrapper.find('iframe').attributes('src')).toBe('/admin/api-keys?theme=light');
     });
 
-    it('shows an error when revoking fails, and keeps the key listed', async () => {
-        rpc.mockImplementation(async (_target, method) =>
-            method === 'revoke' ? { ok: false, error: 'Disk full' } : { ok: true, result: baseKeys }
-        );
-        const wrapper = await mountOpen();
-        const revokeButton = () => wrapper.findAll('button').find((b) => b.text().includes('headless_api_keys_revoke'));
-        await revokeButton().trigger('click');
-        await revokeButton().trigger('click');
-        await flushPromises();
-        expect(wrapper.find('[role="alert"]').text()).toContain('Disk full');
-        expect(wrapper.text()).toContain('abcd1234');
+    it('does not frame the page when the API is disabled (it would frame the web client itself)', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 404, ok: false }));
+        await mountOpen();
+        expect(wrapper.find('iframe').exists()).toBe(false);
+        expect(wrapper.text()).toContain('status_bar.headless_api_keys_disabled');
     });
 
-    it('keeps a just-created key visible if refreshing the list fails afterwards', async () => {
-        let listCalls = 0;
-        rpc.mockImplementation(async (_target, method) => {
-            if (method === 'create') {
-                return { ok: true, result: { key: 'vrcx_abcd1234_secret', record: {} } };
-            }
-            listCalls += 1;
-            return listCalls === 1 ? { ok: true, result: baseKeys } : { ok: false, error: 'Server went away' };
-        });
-        const wrapper = await mountOpen();
-        await wrapper.find('input:not([type="checkbox"])').setValue('k');
-        await wrapper.findAll('input[type="checkbox"]')[0].setValue(true);
-        await wrapper.find('form').trigger('submit');
-        await flushPromises();
-        expect(wrapper.text()).toContain('vrcx_abcd1234_secret');
-        expect(wrapper.find('[role="alert"]').text()).toContain('Server went away');
+    it('shows an error when the server cannot be reached', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Failed to fetch')));
+        await mountOpen();
+        expect(wrapper.find('[role="alert"]').text()).toContain('Failed to fetch');
     });
 });

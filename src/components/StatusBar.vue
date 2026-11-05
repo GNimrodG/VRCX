@@ -13,7 +13,7 @@
                             mask-image: linear-gradient(to right, black calc(100% - 20px), transparent 100%);
                             -webkit-mask-image: linear-gradient(to right, black calc(100% - 20px), transparent 100%);
                         ">
-                        <HeadlessServerStatus v-if="isLinux && visibility.headless" />
+                        <HeadlessServerStatus v-if="(isLinux || isWeb) && visibility.headless" />
 
                         <UpdateCheckStatus v-if="isLinux || isWeb" />
 
@@ -302,7 +302,7 @@
 
             <ContextMenuContent>
                 <ContextMenuCheckboxItem
-                    v-if="isLinux"
+                    v-if="isLinux || isWeb"
                     :model-value="visibility.headless"
                     @select.prevent
                     @update:model-value="toggleVisibility('headless')">

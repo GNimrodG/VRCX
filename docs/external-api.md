@@ -117,38 +117,71 @@ long ago may be missing.
 
 ## Managing keys
 
-### In the desktop app
+### One form, embedded everywhere
 
-Click the **Headless** indicator in the status bar, then **Manage API keys**: a
-dialog (`src/components/HeadlessApiKeysDialog.vue`, fork-only, mounted from
-`HeadlessServerStatus.vue`) opens over the app, like the changelog. It talks to
-the server over the desktop's existing authenticated RPC channel (the
-`apikeys` target in `server/src/rpc.js`, a twin of `/api/keys` that only exists
-while the API is enabled), so there is no browser sign-in. If the API is off it
-says so. The new key is held in memory only until the dialog closes. **Open in
-browser** next to it opens the standalone page below. The status-bar indicator
-is only mounted on the Electron build, so the plain web client uses the
-standalone page.
+There is exactly one implementation of the key form: the self-contained page the
+server serves at **`/admin/api-keys`** (`server/src/api-keys-page.js`). The apps
+embed it in an iframe instead of reimplementing it, so it always matches the
+server version it manages and there is no second copy to keep in sync.
 
-### Standalone web page
+- **Standalone:** open `/admin/api-keys` on the main (private) server URL while
+  signed in to the web client.
+- **Web client:** status bar > **Headless** > **Manage API keys**, the same
+  indicator and popover as the desktop app (see below). The dialog frames the
+  page same-origin, so it uses the session cookie.
+- **Desktop app:** status bar > **Headless** > **Manage API keys**. The app's
+  page is `file://` and holds no cookie (the login is a token in the main
+  process), so the framed page runs in **bridge mode** (`?bridge=1`): it sends
+  its three operations (`list`/`create`/`revoke`) to its parent with
+  `postMessage`, and the app forwards them over its existing authenticated RPC
+  channel (the `apikeys` target in `server/src/rpc.js`). The dialog
+  (`src/components/HeadlessApiKeysDialog.vue`) only serves messages from its
+  own iframe, from the server's origin, for those three methods, and replies to
+  that origin only. The page never sees the session token.
+- **Theme and layout:** hosts pass `?theme=dark|light`. When framed, the page
+  hides its own heading, drops its padding and has a transparent background so
+  it sits flush in the host's dialog. The host dialog never scrolls on its own:
+  it gets a bounded height and the frame fills it, so the framed page is the
+  only scroller (no double scrollbars on short screens).
+- Before framing, the dialog checks the API is enabled (the web client fetches
+  `/api/v1/openapi.json`, the desktop calls `apikeys.list`). Otherwise a
+  disabled server would answer `/admin/api-keys` with the web client itself.
 
-With the API enabled, open **`/admin/api-keys`** on the main (private) server
-URL while signed in to the web client. Create a key (name, scopes, expiry),
-copy it from the one-time reveal box, see each key's scopes, expiry and last
-use, and revoke with a two-click confirm.
+**Framing rules.** The server only lets its own origin frame the page
+(`frame-ancestors 'self'` plus `X-Frame-Options: SAMEORIGIN`), which is all the
+web client needs. The desktop app's `file://` page is a different origin, so
+`src-electron/apiKeysFrame.js` (wired in `main.js`) strips those headers for
+exactly one request shape: that URL, as a sub-frame, on the server the app is
+connected to. The server never allows `file://` or carries an allowed-origins
+list. The directive is *removed*, not set to `*`, because CSP's `*` never
+matches `file:` (found live in Electron). A hostile page framing it gets
+nothing: standalone auth is `SameSite=Strict`, so there is no cookie in that
+context, and the page only talks to its parent.
 
-- **Fork-only, zero merge surface.** A single self-contained page served by the
-  server (`server/src/api-keys-page.js`), not part of the upstream Vue client:
-  no client build, no edits under `src/**`, and it works on an API-only
-  container. The web client has no link to it; bookmark the URL.
-- **Session-gated.** The page holds no data. It calls `/api/keys` with the
-  browser's `HttpOnly` session cookie, so it only works from a logged-in web
-  client session; signed out, it says so and links to the client. An API key
-  can never be used here.
+- **Session-gated.** The page itself holds no data; it only calls the
+  session-authenticated key routes. Signed out it says so and links to the client.
+  An API key can never be used here.
 - **Hardened.** The CSP pins the inline script by hash (no `unsafe-inline` for
-  scripts) and blocks framing and external loads; all dynamic text is set via
-  `textContent`. It is not served on the public-only listener.
+  scripts) and blocks external loads; all dynamic text is set via `textContent`.
+  It is not served on the public-only listener.
 - With the API disabled the path falls through like any unknown URL.
+
+### The Headless status-bar entry (web and desktop)
+
+`src/components/HeadlessServerStatus.vue` is one component on both clients: a
+status dot and the server's host in the status bar, and a popover with the
+server list and the API keys section. Only the backend differs:
+
+| | Desktop (Electron) | Web client |
+|---|---|---|
+| Active server | the paired server, via the main process | the page's own origin |
+| Other servers | paired and stored by the main process, with TOTP pairing, a default (★) and a custom CA cert | links remembered in this browser only (`localStorage` key `vrcx_headless_servers`), added by URL |
+| Choosing one | confirm, then the app restarts against it | confirm, then a **full-page navigation** to that server; its own web client does its own sign-in |
+| Reachability | pushed by the main process | a check on load and when the popover opens, plus the browser's `online`/`offline` events (no polling) |
+| API keys | **Manage API keys** (in-app dialog) and **Open in browser** | **Manage API keys** |
+
+The status bar's right-click menu has the same "Headless" visibility toggle on
+both. The remembered links are per browser and never sent to any server.
 
 ### HTTP
 

@@ -200,7 +200,8 @@ describe('API keys', () => {
         const csp = response.headers.get('content-security-policy');
         expect(csp).toContain(`script-src 'sha256-${hash}'`);
         expect(csp).not.toMatch(/script-src[^;]*unsafe/);
-        expect(csp).toContain("frame-ancestors 'none'");
+        expect(csp).toContain("frame-ancestors 'self'");
+        expect(response.headers.get('x-frame-options')).toBe('SAMEORIGIN');
         // data-bearing calls are session-gated, not the page itself
         expect((await call('/api/keys')).status).toBe(401);
     });

@@ -17,6 +17,7 @@ const fs = require('fs');
 const https = require('https');
 const os = require('os');
 const { WebSocket: WsClient } = require('ws');
+const { applyApiKeysFrameOverride } = require('./apiKeysFrame');
 
 //app.disableHardwareAcceleration();
 
@@ -1802,7 +1803,25 @@ async function checkAndInstallForkUpdateInner() {
  * successful `vrcx-connect-server` call (from the setup screen) can reach
  * it.
  */
+let apiKeysFrameOverrideInstalled = false;
+
+/**
+ * Lets the in-app "Manage API keys" dialog frame the server's key page; see
+ * `apiKeysFrame.js` for exactly what is relaxed and why that is safe.
+ */
+function installApiKeysFrameOverride() {
+    if (apiKeysFrameOverrideInstalled) {
+        return;
+    }
+    apiKeysFrameOverrideInstalled = true;
+    mainWindow.webContents.session.webRequest.onHeadersReceived(
+        { urls: ['http://*/admin/api-keys*', 'https://*/admin/api-keys*'] },
+        (details, callback) => callback(applyApiKeysFrameOverride(details, serverUrl))
+    );
+}
+
 function loadRealApp() {
+    installApiKeysFrameOverride();
     const indexPath = path.join(rootDir, 'build/html/index.html');
     mainWindow.loadFile(indexPath);
     if (debug) {
