@@ -44,6 +44,7 @@ import { log } from './log.js';
 import { pipelineRelay } from './pipeline-relay.js';
 import { handlePublicApi } from './public-api.js';
 import { repoRoot } from './globals.js';
+import { configChangeFrame, normalizeClientId } from './config-sync.js';
 import { dispatchRpc } from './rpc.js';
 import { checkForUpdateSafe } from './update-check.js';
 import { getUpdateInfo } from './update-release.js';
@@ -309,8 +310,23 @@ export async function createHttpServer(handle, options = {}) {
     const isSecureRequest = (req) =>
         useHttps ||
         (trustProxy && req.headers['x-forwarded-proto'] === 'https');
+    // Tells the other clients about a config write; see config-sync.js.
+    const requestOptions = {
+        ...options,
+        onConfigWrite: (request, originClientId) => {
+            const frame = configChangeFrame(request);
+            if (frame === null) {
+                return;
+            }
+            for (const client of streamClients) {
+                if (client.readyState === client.OPEN && (!originClientId || client.clientId !== originClientId)) {
+                    client.send(frame);
+                }
+            }
+        }
+    };
     const requestListener = (req, res) => {
-        handleRequest(handle, req, res, isSecureRequest(req), options).catch((err) => {
+        handleRequest(handle, req, res, isSecureRequest(req), requestOptions).catch((err) => {
             log.error('HTTP request handler error', { message: err.message });
             if (!res.headersSent) {
                 sendJson(res, 500, { ok: false, error: 'Internal error' });
@@ -405,6 +421,7 @@ export async function createHttpServer(handle, options = {}) {
                 desktopAgent.attach(ws);
                 return;
             }
+            ws.clientId = normalizeClientId(url.searchParams.get('client'));
             streamClients.add(ws);
             ws.on('close', () => streamClients.delete(ws));
             if (lastGroupInstancesFrame !== null) {
@@ -644,6 +661,9 @@ async function handleRequest(handle, req, res, secure, options = {}) {
         }
         const body = await readJsonBody(req);
         const result = await dispatchRpc(handle, body, options);
+        if (result.ok) {
+            options.onConfigWrite?.(body, normalizeClientId(req.headers['x-vrcx-client']));
+        }
         sendJson(res, 200, result);
         return;
     }

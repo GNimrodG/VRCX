@@ -280,6 +280,12 @@ let agentReconnectTimer = null;
  */
 let streamSocket = null;
 /**
+ * Names this app instance to the server (`X-Vrcx-Client` on RPC calls,
+ * `?client=` on the stream socket) so settings sync does not echo this
+ * instance's own config writes back to it. See `server/src/config-sync.js`.
+ */
+const rpcClientId = require('crypto').randomUUID();
+/**
  * Updated opportunistically by every `vrcx-rpc` call and a periodic
  * health-check timer; pushed to the renderer on change (not every tick) so
  * the "Headless" status-bar indicator (`src/components/HeadlessServerStatus.vue`)
@@ -528,7 +534,7 @@ ipcMain.on('vrcx-stream-connect', () => {
     if (!serverUrl || !serverToken) {
         return;
     }
-    const wsUrl = `${serverUrl.replace(/^http/, 'ws')}/api/stream`;
+    const wsUrl = `${serverUrl.replace(/^http/, 'ws')}/api/stream?client=${rpcClientId}`;
     const ws = new WsClient(wsUrl, {
         headers: { Authorization: `Bearer ${serverToken}` }
     });
@@ -978,7 +984,8 @@ ipcMain.handle('vrcx-rpc', async (_event, target, method, args) => {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${serverToken}`
+                Authorization: `Bearer ${serverToken}`,
+                'X-Vrcx-Client': rpcClientId
             },
             body: JSON.stringify({ target, method, args })
         });

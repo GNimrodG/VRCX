@@ -35,6 +35,8 @@
 import qrcode from 'qrcode-generator';
 
 import { AppDebug } from '../src/services/appConfig.js';
+import { CONFIG_CHANGED_TYPE, handleConfigFrame } from './shims/config-sync.js';
+import { clientId } from './shims/rpc-client.js';
 
 const root = document.getElementById('root');
 
@@ -57,8 +59,11 @@ function installGroupInstanceRelayTap() {
     const NativeWebSocket = window.WebSocket;
     class TappedWebSocket extends NativeWebSocket {
         constructor(url, protocols) {
-            super(url, protocols);
-            if (typeof url !== 'string' || !url.includes('/api/stream')) {
+            const isStream = typeof url === 'string' && url.includes('/api/stream');
+            // Names this socket for settings sync, so the server skips it when
+            // relaying this page's own config writes.
+            super(isStream ? `${url}${url.includes('?') ? '&' : '?'}client=${clientId}` : url, protocols);
+            if (!isStream) {
                 return;
             }
             this.addEventListener('message', (event) => {
@@ -66,6 +71,10 @@ function installGroupInstanceRelayTap() {
                 try {
                     frame = JSON.parse(event.data);
                 } catch {
+                    return;
+                }
+                if (frame?.type === CONFIG_CHANGED_TYPE) {
+                    handleConfigFrame(frame);
                     return;
                 }
                 if (frame?.type !== 'vrcx-headless-group-instances') {

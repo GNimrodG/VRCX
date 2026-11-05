@@ -33,6 +33,7 @@
  */
 import { AppDebug } from '../../src/services/appConfig.js';
 import { handleGroupUserInstances } from '../../src/coordinators/groupCoordinator.js';
+import { tapConfigFrame } from '../../client-web/shims/config-sync.js';
 
 const RELAY_DOMAIN = 'vrcx-desktop-stream:';
 
@@ -99,6 +100,7 @@ export function installPipelineRelay() {
                 break;
             case 'message':
                 tapGroupInstanceFrame(evt.data);
+                tapConfigFrame(evt.data);
                 socket.onmessage?.({ data: evt.data });
                 break;
             case 'close':

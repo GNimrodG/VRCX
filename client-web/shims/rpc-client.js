@@ -16,6 +16,7 @@
  * correctly. Every `src/**` call site was written against real
  * `Map`/`Set` semantics (`.values()`, `.get()`, `.has()`, `.size`) since
  * that's what it gets in the unmodified upstream desktop build.
+ *
  * @param {any} value
  * @returns {any}
  */
@@ -40,6 +41,15 @@ function reviveRpcValue(value) {
 }
 
 /**
+ * Identifies this page to the server so settings sync (`config-sync.js`) does
+ * not echo this client's own writes back to it. One per page load, so two tabs
+ * count as two clients.
+ */
+export const clientId = (globalThis.crypto?.randomUUID?.() ?? `c${Math.random().toString(36).slice(2)}${Date.now()}`)
+    .replaceAll(/[^A-Za-z0-9_-]/g, '')
+    .slice(0, 64);
+
+/**
  * @param {'db' | 'config' | 'webapi'} target
  * @param {string} method
  * @param {any[]} [args]
@@ -49,7 +59,7 @@ export async function rpcCall(target, method, args = []) {
     const response = await fetch('/api/rpc', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Vrcx-Client': clientId },
         body: JSON.stringify({ target, method, args })
     });
     if (response.status === 401) {
