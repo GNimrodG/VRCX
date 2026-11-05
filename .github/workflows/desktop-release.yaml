@@ -95,12 +95,13 @@ jobs:
               with:
                   dotnet-version: '10.0.x'
 
-            - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-              with:
-                  path: ~/.nuget/packages
-                  key: ${{ runner.os }}-${{ matrix.id }}-nuget-${{ hashFiles(matrix.csproj) }}
-                  restore-keys: |
-                      ${{ runner.os }}-${{ matrix.id }}-nuget-
+            # No NuGet package cache, on purpose. A cold restore of everything a
+            # leg needs takes ~7s (measured: ~600 MiB on disk), about what
+            # restoring the cache did (~10s), while each leg's cache entry was
+            # 750-890 MiB of the repository's 10 GB cache budget, ~4.7 GiB in
+            # all. The downloads that actually flaked were Electron's and
+            # electron-builder's from github.com (cached in install-deps), not
+            # nuget.org.
 
             - name: Build the .NET side (${{ matrix.id }})
               run: |
