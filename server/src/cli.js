@@ -19,6 +19,7 @@ import { buildServerVersion, buildUserAgent, readForkVersion, readVersion } from
 import { installGroupInstanceRelay } from './group-instance-relay.js';
 import { setServerTotp } from './http-auth.js';
 import { createHttpServer } from './http-server.js';
+import { createPublicApiServer, isApiEnabled } from './public-api.js';
 import { acquireLock, installLockReleaseOnExit, isLocked, releaseLock } from './lock.js';
 import { log } from './log.js';
 import { resolveDatabasePath } from './paths.js';
@@ -504,7 +505,13 @@ async function main() {
         // VRChat/the network hiccuped and the app logged itself out.
         superviseSession(stores, handle);
 
-        const { server, streamClientCount, useHttps } = await createHttpServer(handle, { tls, trustProxy });
+        const { server, streamClientCount, useHttps } = await createHttpServer(handle, {
+            tls,
+            trustProxy,
+            apiEnabled: isApiEnabled(),
+            getCurrentUser: () => stores.user.currentUser,
+            getCachedUser: (id) => stores.user.cachedUsers.get(id)
+        });
         const host = process.env.VRCX_SERVER_HOST || '0.0.0.0';
         const port = Number(process.env.VRCX_SERVER_PORT) || 9000;
 
@@ -514,6 +521,27 @@ async function main() {
         });
         console.log(`Serving on ${useHttps ? 'https' : 'http'}://${host}:${port}. Press Ctrl-C to stop.`);
 
+        // Optional second listener exposing only the read-only /api/v1/* API,
+        // so it can be published without exposing login/RPC/the web client.
+        let publicServer = null;
+        const publicPort = Number(process.env.VRCX_PUBLIC_API_PORT) || 0;
+        if (publicPort && !isApiEnabled()) {
+            log.warn('VRCX_PUBLIC_API_PORT is set but VRCX_API_ENABLED is not; the API stays off.');
+        } else if (publicPort) {
+            const publicHost = process.env.VRCX_PUBLIC_API_HOST || '0.0.0.0';
+            publicServer = createPublicApiServer(handle, {
+                apiEnabled: true,
+                tls,
+                getCurrentUser: () => stores.user.currentUser,
+                getCachedUser: (id) => stores.user.cachedUsers.get(id)
+            });
+            await new Promise((resolve, reject) => {
+                publicServer.once('error', reject);
+                publicServer.listen(publicPort, publicHost, resolve);
+            });
+            console.log(`Public read-only API (/api/v1/* only) on ${tls ? 'https' : 'http'}://${publicHost}:${publicPort}.`);
+        }
+
         await new Promise((resolve) => {
             process.on('SIGINT', resolve);
             process.on('SIGTERM', resolve);
@@ -521,6 +549,9 @@ async function main() {
 
         console.log(`\nShutting down (${streamClientCount()} stream client(s) connected).`);
         await new Promise((resolve) => server.close(resolve));
+        if (publicServer) {
+            await new Promise((resolve) => publicServer.close(resolve));
+        }
         releaseLock(handle.databasePath);
         handle.close();
         return 0;

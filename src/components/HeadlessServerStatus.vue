@@ -74,6 +74,19 @@
                     </p>
                 </div>
 
+                <div v-if="addStep === 'closed' && status.url" class="flex flex-col gap-1 border-t border-border pt-2">
+                    <span class="text-[11px] text-foreground">{{ t('status_bar.headless_api_keys') }}</span>
+                    <p class="text-[10px] text-muted-foreground m-0">{{ t('status_bar.headless_api_keys_hint') }}</p>
+                    <div class="flex gap-2">
+                        <Button size="sm" class="h-6 px-2 text-[11px]" @click="openApiKeysDialog">
+                            {{ t('status_bar.headless_api_keys_open') }}
+                        </Button>
+                        <Button variant="ghost" size="sm" class="h-6 px-2 text-[11px]" @click="openApiKeys">
+                            {{ t('status_bar.headless_api_keys_open_browser') }}
+                        </Button>
+                    </div>
+                </div>
+
                 <div v-if="addStep === 'closed'" class="flex flex-col gap-1 border-t border-border pt-2">
                     <span class="text-[11px] text-foreground">{{ t('status_bar.headless_ca_cert') }}</span>
                     <p class="text-[10px] text-muted-foreground m-0">
@@ -252,6 +265,7 @@
             </div>
         </PopoverContent>
     </Popover>
+    <HeadlessApiKeysDialog v-model:open="apiKeysDialogOpen" />
 </template>
 
 <script setup>
@@ -259,6 +273,7 @@
     import { useI18n } from 'vue-i18n';
     import qrcode from 'qrcode-generator';
 
+    import HeadlessApiKeysDialog from '@/components/HeadlessApiKeysDialog.vue';
     import { Button } from '@/components/ui/button';
     import { Input } from '@/components/ui/input';
     import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -272,6 +287,7 @@
     const agent = window.vrcxDesktopAgent;
 
     const open = ref(false);
+    const apiKeysDialogOpen = ref(false);
     const busy = ref(false);
     const status = ref({ url: null, label: '', reachable: true });
     const servers = ref([]);
@@ -423,6 +439,20 @@
         } finally {
             busy.value = false;
         }
+    }
+
+    // The in-app dialog (HeadlessApiKeysDialog.vue) talks to the server over
+    // the desktop's RPC channel. This one opens the server's own standalone
+    // page (server/src/api-keys-page.js) in the system browser instead, which
+    // authenticates with a browser session cookie.
+    function openApiKeysDialog() {
+        open.value = false;
+        apiKeysDialogOpen.value = true;
+    }
+
+    function openApiKeys() {
+        if (!status.value.url) return;
+        AppApi.OpenLink(new URL('/admin/api-keys', status.value.url).toString());
     }
 
     function startAddServer() {

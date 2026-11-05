@@ -83,6 +83,7 @@ For host-OS checks use `src/shared/utils/hostOs.js` (`isHostWindows()`/`isHostLi
 | `server/**` | ours | The headless server. Setup docs: `server/README.md`. |
 | `client-web/**` | ours | Browser-client shims. |
 | `client-desktop/**` | ours | Desktop-agent shims + server-connection gate. Build docs: `client-desktop/README.md`. |
+| `server/src/api-keys*.js`, `public-api*.js` | ours | Opt-in external read-only API (`VRCX_API_ENABLED`) and its key-management page; see [`docs/external-api.md`](docs/external-api.md). |
 | `.github/workflows/server-docker.yaml`, `.dockerignore` | ours | Container build. New files, so no merge surface. |
 | `CLAUDE.md` | ours | This file. |
 

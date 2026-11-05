@@ -21,6 +21,13 @@ import path from 'node:path';
 import { WebSocketServer } from 'ws';
 
 import { desktopAgent } from './agent.js';
+import { API_KEYS_PAGE } from './api-keys-page.js';
+import {
+    createApiKey,
+    listApiKeys,
+    revokeApiKey,
+    SCOPES
+} from './api-keys.js';
 import { groupInstanceRelay } from './group-instance-relay.js';
 import {
     checkTotpCode,
@@ -35,6 +42,7 @@ import {
 } from './http-auth.js';
 import { log } from './log.js';
 import { pipelineRelay } from './pipeline-relay.js';
+import { handlePublicApi } from './public-api.js';
 import { repoRoot } from './globals.js';
 import { dispatchRpc } from './rpc.js';
 import { checkForUpdateSafe } from './update-check.js';
@@ -259,6 +267,11 @@ async function sendNewSession(handle, res, secure, includeToken) {
  *   (`VRCX_SERVER_TLS_CERT`/`VRCX_SERVER_TLS_KEY`, or `--tls-cert`/
  *   `--tls-key`) and validates that a partial pair is a config error, not
  *   something this function silently papers over.
+ * @param {boolean} [options.apiEnabled] Opt-in (`VRCX_API_ENABLED`) for
+ *   `/api/v1/*` and `/api/keys`; when falsy they 404 like any unknown path.
+ * @param {() => any} [options.getCurrentUser] Returns the logged-in VRChat
+ *   user (from the Pinia store) for `/api/v1/me`; unset/`null` result means
+ *   "not logged in" and that route answers 503.
  * @param {boolean} [options.trustProxy] Set when a reverse proxy (nginx,
  *   Caddy, …) terminates TLS in front of `serve` and forwards plain HTTP —
  *   the common deployment this project's own docs recommend. Without this,
@@ -297,7 +310,7 @@ export async function createHttpServer(handle, options = {}) {
         useHttps ||
         (trustProxy && req.headers['x-forwarded-proto'] === 'https');
     const requestListener = (req, res) => {
-        handleRequest(handle, req, res, isSecureRequest(req)).catch((err) => {
+        handleRequest(handle, req, res, isSecureRequest(req), options).catch((err) => {
             log.error('HTTP request handler error', { message: err.message });
             if (!res.headersSent) {
                 sendJson(res, 500, { ok: false, error: 'Internal error' });
@@ -409,8 +422,71 @@ export async function createHttpServer(handle, options = {}) {
  * @param {http.ServerResponse} res
  * @param {boolean} secure
  */
-async function handleRequest(handle, req, res, secure) {
+async function handleRequest(handle, req, res, secure, options = {}) {
     const url = new URL(req.url, 'http://localhost');
+
+    // API-key-authenticated, read-only surface for external consumers; see
+    // public-api.js. Handled first so a key can never reach a session route.
+    const publicResult = await handlePublicApi(handle, req, url, options);
+    if (publicResult) {
+        sendJson(res, publicResult.status, publicResult.body);
+        return;
+    }
+
+    // Fork-only key-management UI (api-keys-page.js). The page holds no data;
+    // it calls the session-authenticated /api/keys routes below with the
+    // browser's cookie, so it only works from a logged-in web client session.
+    if (
+        options.apiEnabled &&
+        req.method === 'GET' &&
+        url.pathname === '/admin/api-keys'
+    ) {
+        res.writeHead(200, API_KEYS_PAGE.headers);
+        res.end(API_KEYS_PAGE.html);
+        return;
+    }
+
+    // API key management. Session-authenticated (TOTP login), not key-
+    // authenticated: a key must never be able to mint or list keys. Lives
+    // here rather than in the CLI because `serve` holds the database write
+    // lock, so a separate process can't write while it's running.
+    if (
+        options.apiEnabled &&
+        (url.pathname === '/api/keys' || url.pathname.startsWith('/api/keys/'))
+    ) {
+        if (!(await validateSession(handle, readSessionToken(req)))) {
+            sendJson(res, 401, { ok: false, error: 'Not authenticated' });
+            return;
+        }
+        if (req.method === 'GET' && url.pathname === '/api/keys') {
+            sendJson(res, 200, {
+                ok: true,
+                keys: await listApiKeys(handle),
+                scopes: SCOPES
+            });
+            return;
+        }
+        if (req.method === 'POST' && url.pathname === '/api/keys') {
+            const body = await readJsonBody(req);
+            try {
+                const { key, record } = await createApiKey(handle, body);
+                sendJson(res, 201, { ok: true, key, record });
+            } catch (err) {
+                sendJson(res, 400, { ok: false, error: err.message });
+            }
+            return;
+        }
+        if (req.method === 'DELETE' && url.pathname.startsWith('/api/keys/')) {
+            const removed = await revokeApiKey(
+                handle,
+                decodeURIComponent(url.pathname.slice('/api/keys/'.length))
+            );
+            sendJson(res, removed ? 200 : 404, { ok: removed });
+            return;
+        }
+        sendJson(res, 405, { ok: false, error: 'Method not allowed' });
+        return;
+    }
 
     if (req.method === 'POST' && url.pathname === '/api/login') {
         const body = await readJsonBody(req);
@@ -567,7 +643,7 @@ async function handleRequest(handle, req, res, secure) {
             return;
         }
         const body = await readJsonBody(req);
-        const result = await dispatchRpc(handle, body);
+        const result = await dispatchRpc(handle, body, options);
         sendJson(res, 200, result);
         return;
     }

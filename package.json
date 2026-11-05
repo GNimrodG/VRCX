@@ -34,6 +34,7 @@
         "typecheck:node": "tsc -p tsconfig.node.json",
         "test": "vitest run",
         "test:coverage": "vitest run --coverage",
+        "openapi": "node --disable-warning=ExperimentalWarning --import ./server/register-hooks.mjs server/scripts/generate-openapi.js",
         "test:server": "vitest run --config server/vitest.config.js",
         "server": "node --disable-warning=ExperimentalWarning --import ./server/register-hooks.mjs server/src/cli.js",
         "build:licenses": "node ./build-scripts/generate-third-party-licenses.js",

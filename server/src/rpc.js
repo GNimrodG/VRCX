@@ -34,22 +34,39 @@
  * matches it, so a connected desktop client can update itself to stay in
  * lockstep with the server it's talking to.
  */
+import { createApiKey, listApiKeys, revokeApiKey, SCOPES } from './api-keys.js';
 import { getUpdateInfo } from './update-release.js';
 
-/** @type {Record<string, (handle: import('./db.js').DatabaseHandle) => any>} */
+/** @type {Record<string, (handle: import('./db.js').DatabaseHandle, options: { apiEnabled?: boolean }) => any>} */
 const targets = {
     db: (handle) => handle.database,
     config: (handle) => handle.configRepository,
     webapi: () => globalThis.WebApi,
-    update: () => ({ getUpdateInfo })
+    update: () => ({ getUpdateInfo }),
+    // Key management for clients that already hold a session over this
+    // channel (the desktop app's in-app dialog), the RPC twin of the
+    // session-authenticated /api/keys routes. Absent unless the API is
+    // enabled, so it reads as "not available" rather than half-working.
+    apikeys: (handle, options) =>
+        options.apiEnabled
+            ? {
+                  list: async () => ({
+                      keys: await listApiKeys(handle),
+                      scopes: SCOPES
+                  }),
+                  create: (input) => createApiKey(handle, input ?? {}),
+                  revoke: (id) => revokeApiKey(handle, String(id))
+              }
+            : null
 };
 
 /**
  * @param {import('./db.js').DatabaseHandle} handle
- * @param {{ target?: unknown, method?: unknown, args?: unknown }} request
- * @returns {Promise<{ ok: true, result: any } | { ok: false, error: string }>}
+ * @param {{ target?: unknown; method?: unknown; args?: unknown }} request
+ * @param {{ apiEnabled?: boolean }} [options]
+ * @returns {Promise<{ ok: true; result: any } | { ok: false; error: string }>}
  */
-export async function dispatchRpc(handle, request) {
+export async function dispatchRpc(handle, request, options = {}) {
     const { target, method, args } = request ?? {};
 
     if (typeof target !== 'string' || !(target in targets)) {
@@ -61,7 +78,7 @@ export async function dispatchRpc(handle, request) {
     if (typeof method !== 'string') {
         return { ok: false, error: 'RPC method must be a string' };
     }
-    const targetObject = targets[target](handle);
+    const targetObject = targets[target](handle, options);
     if (!targetObject) {
         // Only reachable for 'webapi' if a caller wires up dispatchRpc
         // without installWebApi() having run first — 'db'/'config' always

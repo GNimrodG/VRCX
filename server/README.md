@@ -165,6 +165,12 @@ sqlite3 ~/.config/VRCX/VRCX.sqlite3 "DELETE FROM configs WHERE name = 'VRCX_Serv
 
 (The CLI's own `query` command can't do this — it opens the database read-only on purpose.) `serve`'s next start picks up the missing secret and falls back to first-time enrollment.
 
+## API keys (read-only external access)
+
+Off by default; set `VRCX_API_ENABLED=1` to enable persistent, scope-limited API
+keys and a read-only `/api/v1/*` API, optionally on its own public-only port
+(`VRCX_PUBLIC_API_PORT`). Full guide: [`docs/external-api.md`](../docs/external-api.md).
+
 ## Environment
 
 | Variable               | Meaning                                                 |
