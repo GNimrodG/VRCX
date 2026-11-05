@@ -18,6 +18,7 @@ const https = require('https');
 const os = require('os');
 const { WebSocket: WsClient } = require('ws');
 const { applyApiKeysFrameOverride } = require('./apiKeysFrame');
+const { verifyWithCustomCa } = require('./customCaTrust');
 
 //app.disableHardwareAcceleration();
 
@@ -1822,6 +1823,15 @@ function installApiKeysFrameOverride() {
 
 function loadRealApp() {
     installApiKeysFrameOverride();
+    // The imported CA is otherwise trusted by Node only; Chromium needs it for
+    // the API-keys iframe (see customCaTrust.js).
+    mainWindow.webContents.session.setCertificateVerifyProc((request, callback) =>
+        callback(
+            verifyWithCustomCa(request, serverUrl, () =>
+                fs.existsSync(customCaCertPath) ? fs.readFileSync(customCaCertPath, 'utf8') : null
+            )
+        )
+    );
     const indexPath = path.join(rootDir, 'build/html/index.html');
     mainWindow.loadFile(indexPath);
     if (debug) {
