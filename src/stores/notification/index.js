@@ -239,7 +239,7 @@ export const useNotificationStore = defineStore('Notification', () => {
                 sharedFeedStore.addEntry(ref);
             }
             if (matchesNotificationTypeFilter && !isExcludedType) {
-                uiStore.notifyMenu('notification');
+                uiStore.notifyMenu('notification', ref.type);
             }
         }
         notificationTable.value.data.push(ref);
@@ -616,7 +616,7 @@ export const useNotificationStore = defineStore('Notification', () => {
             notificationTable.value.filters[0].value.length === 0 ||
             notificationTable.value.filters[0].value.includes(ref.type);
         if (isNotificationInitReady && matchesNotificationTypeFilter) {
-            uiStore.notifyMenu('notification');
+            uiStore.notifyMenu('notification', ref.type);
         }
         database.addNotificationV2ToDatabase(ref);
         notificationTable.value.data.push(ref);

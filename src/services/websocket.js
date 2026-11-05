@@ -532,7 +532,7 @@ function handlePipeline(args) {
                 notificationStore.notificationTable.filters[0].value.length === 0 ||
                 notificationStore.notificationTable.filters[0].value.includes(noty.type)
             ) {
-                uiStore.notifyMenu('notification');
+                uiStore.notifyMenu('notification', noty.type);
             }
             notificationStore.queueNotificationNoty(noty);
             notificationStore.appendNotificationTableEntry(noty);

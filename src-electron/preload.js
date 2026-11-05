@@ -82,7 +82,7 @@ contextBridge.exposeInMainWorld('electron', {
     getClipboardText: () => ipcRenderer.invoke('app:getClipboardText'),
     getNoUpdater: () => ipcRenderer.invoke('app:getNoUpdater'),
     getCanSelfUpdate: () => ipcRenderer.invoke('app:getCanSelfUpdate'),
-    setTrayIconNotification: (notify) => ipcRenderer.invoke('app:setTrayIconNotification', notify),
+    setTrayIconNotification: (color) => ipcRenderer.invoke('app:setTrayIconNotification', color),
     setThemeSource: (source) => ipcRenderer.invoke('app:setThemeSource', source),
     onSystemThemeChanged: (callback) => registerManagedListener('systemThemeChanged', callback),
     openFileDialog: () => ipcRenderer.invoke('dialog:openFile'),

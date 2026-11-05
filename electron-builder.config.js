@@ -28,6 +28,8 @@ module.exports = {
         'images/VRCX.ico',
         'images/VRCX_notify.png',
         'images/VRCX_notify.ico',
+        'images/VRCX_notify_*.png',
+        'images/VRCX_notify_*.ico',
         'Version',
         'src-electron/libs/linux/libopenvr_api.so',
         '.no-updater'

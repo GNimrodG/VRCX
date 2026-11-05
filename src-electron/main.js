@@ -93,8 +93,8 @@ let tray = null;
 /** @type {Electron.NativeImage | string} */
 let trayIcon = null;
 
-/** @type {Electron.NativeImage | string} */
-let trayIconNotify = null;
+/** @type {Map<string, Electron.NativeImage | string>} */
+const trayIconCache = new Map();
 
 // Get launch arguments
 let appImagePath = process.env.APPIMAGE;
@@ -1328,8 +1328,8 @@ ipcMain.handle('app:getCanSelfUpdate', () => {
     return false;
 });
 
-ipcMain.handle('app:setTrayIconNotification', (_event, notify) => {
-    setTrayIconNotification(notify);
+ipcMain.handle('app:setTrayIconNotification', (_event, color) => {
+    setTrayIconNotification(color);
 });
 
 function tryRelaunchWithArgs(args) {
@@ -2066,23 +2066,41 @@ function destroyTray() {
     }
 }
 
-function createTray() {
-    if (process.platform === 'darwin') {
-        const image = nativeImage.createFromPath(path.join(rootDir, 'images/VRCX.png'));
-        trayIcon = image.resize({ width: 16, height: 16 });
-
-        const imageNotify = nativeImage.createFromPath(path.join(rootDir, 'images/VRCX_notify.png'));
-        trayIconNotify = imageNotify.resize({ width: 16, height: 16 });
-    } else if (process.platform === 'linux') {
-        const image = nativeImage.createFromPath(path.join(rootDir, 'images/VRCX.png'));
-        trayIcon = image.resize({ width: 64, height: 64 });
-
-        const imageNotify = nativeImage.createFromPath(path.join(rootDir, 'images/VRCX_notify.png'));
-        trayIconNotify = imageNotify.resize({ width: 64, height: 64 });
-    } else {
-        trayIcon = path.join(rootDir, 'images/VRCX.ico');
-        trayIconNotify = path.join(rootDir, 'images/VRCX_notify.ico');
+/**
+ * Tray icon for a dot color (`null` = no dot). Colors come from the renderer's
+ * tray dot rules (`src/shared/constants/trayDot.js`); `red` is the original
+ * `VRCX_notify.*`, the rest are `VRCX_notify_<color>.*`
+ * (`scripts/generate-tray-icons.sh`).
+ *
+ * @param {string | null} color
+ */
+function getTrayIconForColor(color) {
+    const base = !color ? 'VRCX' : color === 'red' ? 'VRCX_notify' : `VRCX_notify_${color}`;
+    if (!/^[A-Za-z_]+$/.test(base)) {
+        return trayIcon;
     }
+    const cached = trayIconCache.get(base);
+    if (cached) {
+        return cached;
+    }
+    let icon;
+    if (process.platform === 'win32') {
+        icon = path.join(rootDir, `images/${base}.ico`);
+    } else {
+        const size = process.platform === 'darwin' ? 16 : 64;
+        const image = nativeImage.createFromPath(path.join(rootDir, `images/${base}.png`));
+        if (image.isEmpty()) {
+            // Unknown color / missing asset: better the plain red dot than no icon.
+            return base === 'VRCX' ? trayIcon : getTrayIconForColor('red');
+        }
+        icon = image.resize({ width: size, height: size });
+    }
+    trayIconCache.set(base, icon);
+    return icon;
+}
+
+function createTray() {
+    trayIcon = getTrayIconForColor(null);
     tray = new Tray(trayIcon);
     const contextMenu = Menu.buildFromTemplate([
         {
@@ -2117,11 +2135,13 @@ function createTray() {
 }
 
 /**
- * @param {Boolean} notify
+ * @param {string | boolean | null} color Dot color name, `null`/`false` for no
+ *   dot. `true` is the pre-color-rules protocol and means red.
  */
-function setTrayIconNotification(notify) {
+function setTrayIconNotification(color) {
     if (tray) {
-        tray.setImage(notify ? trayIconNotify : trayIcon);
+        const resolved = color === true ? 'red' : typeof color === 'string' ? color : null;
+        tray.setImage(getTrayIconForColor(resolved));
     }
 }
 

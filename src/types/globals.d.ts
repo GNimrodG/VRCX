@@ -39,7 +39,7 @@ declare global {
             getClipboardText: () => Promise<string>;
             getNoUpdater: () => Promise<boolean>;
             getCanSelfUpdate: () => Promise<boolean>;
-            setTrayIconNotification: (notify: boolean) => Promise<void>;
+            setTrayIconNotification: (color: string | null) => Promise<void>;
             setThemeSource: (source: 'system' | 'light' | 'dark') => Promise<void>;
             onSystemThemeChanged: (Function: (event: any, isDark: boolean) => void) => () => void;
             openFileDialog: () => Promise<string>;
@@ -172,7 +172,7 @@ declare global {
         CopyImageToClipboard(path: string): Promise<void>;
         FlashWindow(): Promise<void>;
         SetUserAgent(): Promise<void>;
-        SetTrayIconNotification(notify: boolean): Promise<void>;
+        SetTrayIconNotification(color: string | null): Promise<void>;
         OpenCalendarFile(icsContent: string): Promise<void>;
 
         // Common Functions

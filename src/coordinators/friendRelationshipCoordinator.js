@@ -152,7 +152,7 @@ export function addFriendship(id) {
                 };
                 friendLog.set(id, friendLogCurrent);
                 database.setFriendLogCurrent(friendLogCurrent);
-                uiStore.notifyMenu('friend-log');
+                uiStore.notifyMenu('friend-log', 'Friend');
                 deleteFriendRequest(id);
                 userRequest
                     .getUser({
@@ -213,7 +213,7 @@ export function updateFriendship(ref) {
             friendLog.set(ref.id, friendLogCurrent);
             database.setFriendLogCurrent(friendLogCurrent);
             ctx.displayName = ref.displayName;
-            uiStore.notifyMenu('friend-log');
+            uiStore.notifyMenu('friend-log', 'DisplayName');
         }
     }
     if (ref.$trustLevel && ctx.trustLevel && ctx.trustLevel !== ref.$trustLevel) {
@@ -252,7 +252,7 @@ export function updateFriendship(ref) {
         };
         friendLog.set(ref.id, friendLogCurrent2);
         database.setFriendLogCurrent(friendLogCurrent2);
-        uiStore.notifyMenu('friend-log');
+        uiStore.notifyMenu('friend-log', 'TrustLevel');
     }
     ctx.trustLevel = ref.$trustLevel;
 }
@@ -373,7 +373,7 @@ export function runDeleteFriendshipFlow(id, { nowIso = () => new Date().toJSON()
                 database.deleteFriendLogCurrent(id);
                 handleFavoriteDelete(id);
                 if (!appearanceSettingsStore.hideUnfriends) {
-                    uiStore.notifyMenu('friend-log');
+                    uiStore.notifyMenu('friend-log', 'Unfriend');
                 }
                 friendStore.deleteFriend(id);
                 removeFriendSearchIndex(id);

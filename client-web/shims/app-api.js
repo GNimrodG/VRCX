@@ -20,6 +20,8 @@
  */
 import { toast } from 'vue-sonner';
 
+import { setFaviconDot } from './favicon.js';
+
 const IMPLEMENTED = {
     async GetVersion() {
         // `VERSION` is Vite's compile-time global — upstream's own date-only
@@ -50,7 +52,9 @@ const IMPLEMENTED = {
     // analogue either; returning '' matches what native already returns
     // when no such file exists, which is the common case.
     async ChangeTheme() {},
-    async SetTrayIconNotification() {},
+    // Not a no-op any more: the tab's favicon is this client's "tray icon"
+    // (client-web/shims/favicon.js).
+    SetTrayIconNotification: setFaviconDot,
     async CustomCss() {
         return '';
     },

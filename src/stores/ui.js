@@ -7,6 +7,7 @@ import { useRouter } from 'vue-router';
 import { AppDebug } from '../services/appConfig';
 import { refreshCustomCss } from '../shared/utils/base/ui';
 import { updateLocalizedStrings } from '../plugins/i18n';
+import { createTrayDotController } from '../shared/utils/trayDot';
 import { useAppearanceSettingsStore } from './settings/appearance';
 import { useAvatarStore } from './avatar';
 import { useGroupStore } from './group';
@@ -22,6 +23,7 @@ import { showUserDialog } from '../coordinators/userCoordinator';
 import { useInstanceStore } from './instance';
 import { useNotificationStore } from './notification';
 import { useSearchStore } from './search';
+import { useTrayDotSettingsStore } from './settings/trayDot';
 import { useUserStore } from './user';
 import { useWorldStore } from './world';
 
@@ -32,6 +34,19 @@ export const useUiStore = defineStore('Ui', () => {
     const keys = useMagicKeys();
     const { directAccessPaste } = useSearchStore();
     const appearanceSettings = useAppearanceSettingsStore();
+    const trayDotSettings = useTrayDotSettingsStore();
+    const trayDot = createTrayDotController({
+        getRules: () => trayDotSettings.rules,
+        isEnabled: () => appearanceSettings.notificationIconDot,
+        apply: (color) => {
+            trayIconNotify.value = color;
+            if (LINUX) {
+                window.electron.setTrayIconNotification(color);
+                return;
+            }
+            AppApi.SetTrayIconNotification(color);
+        }
+    });
 
     const ctrlR = keys['Ctrl+R'];
     const ctrlD = keys['Ctrl+D'];
@@ -42,7 +57,8 @@ export const useUiStore = defineStore('Ui', () => {
 
     const notifiedMenus = ref([]);
     const shiftHeld = ref(false);
-    const trayIconNotify = ref(false);
+    /** Current tray/favicon dot color, or null for no dot. */
+    const trayIconNotify = ref(null);
     const dialogCrumbs = ref([]);
 
     watch(ctrlR, (isPressed) => {
@@ -302,38 +318,39 @@ export const useUiStore = defineStore('Ui', () => {
         }
     );
 
-    function notifyMenu(index) {
+    /**
+     * @param {string} index Menu name ('notification' | 'friend-log')
+     * @param {string} [type] Notification / friend-log type, for tray dot color rules
+     */
+    function notifyMenu(index, type) {
         const currentRouteName = router.currentRoute.value?.name;
-        if (index !== currentRouteName && !notifiedMenus.value.includes(index)) {
-            notifiedMenus.value.push(index);
-            updateTrayIconNotify();
+        if (index !== currentRouteName) {
+            if (!notifiedMenus.value.includes(index)) {
+                notifiedMenus.value.push(index);
+            }
+            trayDot.notify(index, type);
         }
     }
 
     function removeNotify(index) {
         notifiedMenus.value = notifiedMenus.value.filter((i) => i !== index);
-        updateTrayIconNotify();
+        trayDot.clear(index);
     }
 
     function clearAllNotifications() {
         notifiedMenus.value = [];
-        updateTrayIconNotify();
+        trayDot.clearAll();
     }
 
     function updateTrayIconNotify(force = false) {
-        const newState =
-            appearanceSettings.notificationIconDot &&
-            (notifiedMenus.value.includes('notification') || notifiedMenus.value.includes('friend-log'));
-
-        if (trayIconNotify.value !== newState || force) {
-            trayIconNotify.value = newState;
-            if (LINUX) {
-                window.electron.setTrayIconNotification(trayIconNotify.value);
-                return;
-            }
-            AppApi.SetTrayIconNotification(trayIconNotify.value);
-        }
+        trayDot.update(force);
     }
+    // Rules load asynchronously and can change from the settings page.
+    watch(
+        () => trayDotSettings.rules,
+        () => updateTrayIconNotify(),
+        { deep: true }
+    );
     updateTrayIconNotify(true);
 
     return {
