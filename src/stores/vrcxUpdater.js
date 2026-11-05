@@ -734,7 +734,7 @@ export const useVRCXUpdaterStore = defineStore('VRCXUpdater', () => {
         if (!LINUX) {
             AppApi.RestartApplication(isUpgrade);
         } else {
-            window.electron.restartApp();
+            window.electron.restartApp(isUpgrade);
         }
     }
     function updateProgressText() {

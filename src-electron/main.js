@@ -1295,7 +1295,22 @@ function restartApp() {
     }
 }
 
-ipcMain.handle('app:restart', () => {
+ipcMain.handle('app:restart', (_event, options) => {
+    // After the Settings page downloaded an update the new build is already on
+    // disk (AppImage) or staged as update.exe (Windows); a plain relaunch left
+    // the app closed because app.relaunch() never fires once the force-exit
+    // watchdog SIGKILLs a hung teardown, and the Windows installer doesn't
+    // relaunch on its own. Use the same detached hand-off as the startup updater.
+    if (options?.isUpgrade) {
+        if (process.platform === 'linux' && appImagePath) {
+            scheduleAppImageRelaunchAfterUpdate();
+            return;
+        }
+        if (process.platform === 'win32') {
+            scheduleWindowsInstallAfterUpdate();
+            return;
+        }
+    }
     restartApp();
 });
 
@@ -1534,6 +1549,79 @@ function compareForkVersions(a, b) {
 }
 
 /**
+ * Relaunches the Linux AppImage after `Update.DownloadUpdate` has already
+ * swapped the new one into place, then exits. A detached shell does the launch
+ * rather than `app.relaunch()`, which only fires as a side effect of Electron's
+ * own quit sequence finishing: when teardown hangs and
+ * `scheduleForceExitFallback()`'s watchdog has to `SIGKILL` us, it silently
+ * never happens (see `checkAndInstallForkUpdateInner()`'s comments for the live
+ * finding). Shared by the pre-window updater and the Settings page's update
+ * button (`app:restart` with `isUpgrade`), which used to go through
+ * `restartApp()` and so just closed the app.
+ */
+function scheduleAppImageRelaunchAfterUpdate() {
+    const relaunchDelaySeconds = 5;
+    const relaunchArgs = ['--appimage-extract-and-run'];
+    if (!x11) {
+        relaunchArgs.push('--ozone-platform-hint=auto');
+    }
+    relaunchArgs.push('--post-update');
+    const quoteForShell = (value) => `'${value.replace(/'/g, `'\\''`)}'`;
+    const relaunchCommand = [appImagePath, ...relaunchArgs].map(quoteForShell).join(' ');
+    logFork(`Scheduling relaunch of ${appImagePath} in ${relaunchDelaySeconds}s (${relaunchArgs.join(' ')})`);
+    const launcher = spawn('sh', ['-c', `sleep ${relaunchDelaySeconds}; exec ${relaunchCommand}`], {
+        detached: true,
+        stdio: 'ignore'
+    });
+    logFork(`Relaunch shell spawn returned, pid=${launcher.pid}`);
+    launcher.on('error', (err) => logFork(`Relaunch shell spawn error: ${err?.message ?? err}`));
+    launcher.unref();
+    scheduleForceExitFallback();
+    app.exit(0);
+}
+
+/**
+ * Windows counterpart: hands the install-then-relaunch chain to a detached
+ * `apply-update.bat`, then exits. See `checkAndInstallForkUpdateInner()`'s
+ * comments for why it is a script that ignores the installer's exit code.
+ */
+function scheduleWindowsInstallAfterUpdate() {
+    const updateExePath = path.join(getVRCXPath(), 'update.exe');
+    const execPathBeforeUpdate = process.execPath;
+    const batchPath = path.join(getVRCXPath(), 'apply-update.bat');
+    const logPath = path.join(getVRCXPath(), 'apply-update.log');
+    const batchLines = [
+        '@echo off',
+        `echo [%date% %time%] scheduled, waiting for old process to exit > "${logPath}"`,
+        'timeout /t 3 /nobreak >nul',
+        `echo [%date% %time%] running installer >> "${logPath}"`,
+        `"${updateExePath}"`,
+        `echo [%date% %time%] installer exit code %errorlevel% >> "${logPath}"`,
+        // The installer runs from update.exe in place, so nothing else removes it.
+        // Left behind, the relaunched app's Update.Check() (Dotnet/Program.cs Init)
+        // moves it to VRCX_Setup.exe and re-runs the installer, then Environment.Exit(0)s
+        // before the app ever opens: the "installer ran twice, app never launched" bug.
+        `del /f /q "${updateExePath}"`,
+        `echo [%date% %time%] removed update.exe >> "${logPath}"`,
+        `start "" "${execPathBeforeUpdate}"`,
+        `echo [%date% %time%] relaunch issued >> "${logPath}"`
+    ];
+    fs.writeFileSync(batchPath, batchLines.join('\r\n'));
+    logFork(`Wrote ${batchPath}, spawning cmd.exe`);
+    const launcher = spawn('cmd.exe', ['/c', batchPath], {
+        detached: true,
+        stdio: 'ignore'
+    });
+    logFork(`cmd.exe spawn returned, pid=${launcher.pid}`);
+    // Fire-and-forget from here — an unhandled 'error' on this emitter
+    // would otherwise crash the process we're about to exit anyway.
+    launcher.on('error', (err) => logFork(`cmd.exe spawn error: ${err?.message ?? err}`));
+    launcher.unref();
+    logFork('Exiting now');
+    app.exit(0);
+}
+
+/**
  * @returns {Promise<boolean>} True when an update was applied and this
  *   process has already called `app.exit()` to relaunch — found live
  *   (2026-08-28, Linux): `app.exit()` does not actually halt execution of
@@ -1725,24 +1813,7 @@ async function checkAndInstallForkUpdateInner() {
         // process's own `tryRelaunchWithArgs()` guard
         // (`args.includes('--ozone-platform-hint=auto')`) then already finds
         // itself relaunched.
-        const relaunchDelaySeconds = 5;
-        const relaunchArgs = ['--appimage-extract-and-run'];
-        if (!x11) {
-            relaunchArgs.push('--ozone-platform-hint=auto');
-        }
-        relaunchArgs.push('--post-update');
-        const quoteForShell = (value) => `'${value.replace(/'/g, `'\\''`)}'`;
-        const relaunchCommand = [appImagePath, ...relaunchArgs].map(quoteForShell).join(' ');
-        logFork(`Scheduling relaunch of ${appImagePath} in ${relaunchDelaySeconds}s (${relaunchArgs.join(' ')})`);
-        const launcher = spawn('sh', ['-c', `sleep ${relaunchDelaySeconds}; exec ${relaunchCommand}`], {
-            detached: true,
-            stdio: 'ignore'
-        });
-        logFork(`Relaunch shell spawn returned, pid=${launcher.pid}`);
-        launcher.on('error', (err) => logFork(`Relaunch shell spawn error: ${err?.message ?? err}`));
-        launcher.unref();
-        scheduleForceExitFallback();
-        app.exit(0);
+        scheduleAppImageRelaunchAfterUpdate();
         return true;
     }
     // Found live (2026-08-24): letting `app.relaunch()` hand off to
@@ -1777,39 +1848,7 @@ async function checkAndInstallForkUpdateInner() {
     // for the final step specifically so the batch script (and therefore
     // this whole detached process) doesn't sit there waiting for the
     // newly-relaunched app to exit before it's allowed to finish.
-    const updateExePath = path.join(getVRCXPath(), 'update.exe');
-    const execPathBeforeUpdate = process.execPath;
-    const batchPath = path.join(getVRCXPath(), 'apply-update.bat');
-    const logPath = path.join(getVRCXPath(), 'apply-update.log');
-    const batchLines = [
-        '@echo off',
-        `echo [%date% %time%] scheduled, waiting for old process to exit > "${logPath}"`,
-        'timeout /t 3 /nobreak >nul',
-        `echo [%date% %time%] running installer >> "${logPath}"`,
-        `"${updateExePath}"`,
-        `echo [%date% %time%] installer exit code %errorlevel% >> "${logPath}"`,
-        // The installer runs from update.exe in place, so nothing else removes it.
-        // Left behind, the relaunched app's Update.Check() (Dotnet/Program.cs Init)
-        // moves it to VRCX_Setup.exe and re-runs the installer, then Environment.Exit(0)s
-        // before the app ever opens: the "installer ran twice, app never launched" bug.
-        `del /f /q "${updateExePath}"`,
-        `echo [%date% %time%] removed update.exe >> "${logPath}"`,
-        `start "" "${execPathBeforeUpdate}"`,
-        `echo [%date% %time%] relaunch issued >> "${logPath}"`
-    ];
-    fs.writeFileSync(batchPath, batchLines.join('\r\n'));
-    logFork(`Wrote ${batchPath}, spawning cmd.exe`);
-    const launcher = spawn('cmd.exe', ['/c', batchPath], {
-        detached: true,
-        stdio: 'ignore'
-    });
-    logFork(`cmd.exe spawn returned, pid=${launcher.pid}`);
-    // Fire-and-forget from here — an unhandled 'error' on this emitter
-    // would otherwise crash the process we're about to exit anyway.
-    launcher.on('error', (err) => logFork(`cmd.exe spawn error: ${err?.message ?? err}`));
-    launcher.unref();
-    logFork('Exiting now');
-    app.exit(0);
+    scheduleWindowsInstallAfterUpdate();
     return true;
 }
 

@@ -94,7 +94,7 @@ contextBridge.exposeInMainWorld('electron', {
     onBrowserBlur: (callback) => registerManagedListener('onBrowserBlur', callback),
     desktopNotification: (title, body, icon, persistent) =>
         ipcRenderer.invoke('notification:showNotification', title, body, icon, persistent),
-    restartApp: () => ipcRenderer.invoke('app:restart'),
+    restartApp: (isUpgrade = false) => ipcRenderer.invoke('app:restart', { isUpgrade }),
     getOverlayWindow: () => ipcRenderer.invoke('app:getOverlayWindow'),
     updateVr: (active, hmdOverlay, wristOverlay, menuButton, overlayHand) =>
         ipcRenderer.invoke('app:updateVr', active, hmdOverlay, wristOverlay, menuButton, overlayHand),
