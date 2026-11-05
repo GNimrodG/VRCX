@@ -25,6 +25,10 @@ on:
         tags:
             - 'v*'
     workflow_dispatch:
+    # Called by warm-caches.yaml on main, to run these same builds without
+    # publishing anything (publish-release only runs for refs/tags/v*) so the
+    # caches they save are visible to later tag runs. See that file.
+    workflow_call:
 
 permissions:
     contents: write
@@ -116,7 +120,9 @@ jobs:
                   node-version: lts/*
                   cache: pnpm
 
-            - run: pnpm install --frozen-lockfile
+            - uses: ./.github/actions/install-deps
+              with:
+                  cache-name: ${{ matrix.id }}
 
             # PLATFORM=linux means "the Electron client", not "runs on
             # Linux" -- this is the correct script even for Windows/macOS
@@ -175,6 +181,10 @@ jobs:
               with:
                   name: desktop-${{ matrix.id }}
                   path: ${{ steps.artifact.outputs.path }}
+                  # Only tag runs produce artifacts that matter (publish-release
+                  # attaches them to the release). The cache-warming runs on main
+                  # build the same files; keep those for a day, not the default.
+                  retention-days: ${{ !startsWith(github.ref, 'refs/tags/v') && '1' || '' }}
 
     publish-release:
         name: Publish release

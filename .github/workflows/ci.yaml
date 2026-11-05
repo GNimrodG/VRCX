@@ -38,7 +38,7 @@ jobs:
         with:
           node-version: lts/*
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/install-deps
       - run: pnpm run format:check
 
   test_js:
@@ -53,7 +53,7 @@ jobs:
         with:
           node-version: lts/*
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/install-deps
       - run: pnpm test
 
   format_c_sharp:

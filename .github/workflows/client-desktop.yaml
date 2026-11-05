@@ -71,7 +71,7 @@ jobs:
                   node-version: lts/*
                   cache: pnpm
 
-            - run: pnpm install --frozen-lockfile
+            - uses: ./.github/actions/install-deps
 
             - name: Build the Vue app (PLATFORM=linux)
               run: pnpm run prod-linux

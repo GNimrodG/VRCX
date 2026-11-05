@@ -1,0 +1,65 @@
+name: Install dependencies
+description: >-
+    `pnpm install --frozen-lockfile` with retries, after restoring the caches of
+    the binaries that install and packaging otherwise re-download from GitHub on
+    every run. The pnpm package store itself is cached by setup-node's
+    `cache: pnpm`, which must run before this action (as must
+    pnpm/action-setup).
+
+inputs:
+    cache-name:
+        description: >-
+            Distinguishes cache entries between matrix legs that share a runner
+            OS. Legs on the same OS would otherwise race for one key, and the
+            first to finish wins (a key can only be saved once), so a leg that
+            downloads a different binary, e.g. the arm64 Electron zip, would never get
+            its own saved.
+        required: false
+        default: default
+    attempts:
+        description: Total number of `pnpm install` attempts before giving up.
+        required: false
+        default: '3'
+
+runs:
+    using: composite
+    steps:
+        # Electron's own binary (downloaded by its postinstall, from GitHub
+        # releases) and electron-builder's tool downloads (winCodeSign, NSIS,
+        # AppImage tooling, also from GitHub). Both have failed with transient
+        # HTTP 504s, and they only change when electron/electron-builder do,
+        # which the lockfile hash tracks. Paths that don't exist on a given OS
+        # are simply skipped, so one list covers Linux and Windows.
+        - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+          with:
+              path: |
+                  ~/.cache/electron
+                  ~/.cache/electron-builder
+                  ~/AppData/Local/electron/Cache
+                  ~/AppData/Local/electron-builder/Cache
+              key: electron-${{ runner.os }}-${{ runner.arch }}-${{ inputs.cache-name }}-${{ hashFiles('pnpm-lock.yaml') }}
+              # Lockfile changed: start from the previous binaries rather than
+              # from nothing; only what actually changed is downloaded.
+              restore-keys: |
+                  electron-${{ runner.os }}-${{ runner.arch }}-${{ inputs.cache-name }}-
+
+        # Retries cover whatever is still downloaded (a cache miss, the first
+        # run after a lockfile change) and any other flaky registry/CDN error.
+        - name: pnpm install (with retries)
+          shell: bash
+          env:
+              ATTEMPTS: ${{ inputs.attempts }}
+          run: |
+              set -uo pipefail
+              for attempt in $(seq 1 "$ATTEMPTS"); do
+                  if pnpm install --frozen-lockfile; then
+                      exit 0
+                  fi
+                  if [ "$attempt" -lt "$ATTEMPTS" ]; then
+                      delay=$((attempt * 20))
+                      echo "::warning::pnpm install failed (attempt $attempt of $ATTEMPTS); retrying in ${delay}s"
+                      sleep "$delay"
+                  fi
+              done
+              echo "::error::pnpm install failed after $ATTEMPTS attempts"
+              exit 1
