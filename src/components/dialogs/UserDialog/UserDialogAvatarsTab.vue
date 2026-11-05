@@ -115,7 +115,7 @@
 </template>
 
 <script setup>
-    import { computed, ref, watch } from 'vue';
+    import { computed, ref, shallowReactive, watch } from 'vue';
     import { useI18n } from 'vue-i18n';
     import { storeToRefs } from 'pinia';
 
@@ -162,7 +162,12 @@
     // when clicked. For your own avatars the API list is authoritative, so entries
     // missing from it are shown faded (`$gone`) once it has loaded; no extra
     // requests are made to decide that. Fork addition, see docs/patch-inventory.md.
-    const seenAvatars = ref([]);
+    // Kept per user rather than cleared on every dialog change: going to an avatar
+    // and back re-opens this dialog with `userDialog.avatars` reset, and anything
+    // fetched before has to come back with it instead of being dropped.
+    const seenByUser = shallowReactive(new Map());
+    const seenAvatars = computed(() => seenByUser.get(userDialog.value.id) ?? []);
+    const remoteByUser = new Map();
     const allUserDialogAvatars = computed(() => {
         if (!seenAvatars.value.length) {
             return userDialogAvatars.value;
@@ -198,7 +203,6 @@
         () => userDialog.value.id,
         () => {
             avatarSearchQuery.value = '';
-            seenAvatars.value = [];
         }
     );
 
@@ -209,19 +213,19 @@
         const isOwn = userId === currentUser.value.id;
         try {
             const rows = await database.getSeenAvatarsByOwner(userId);
-            if (userDialog.value.id !== userId) {
-                return;
-            }
-            seenAvatars.value = rows.map((row) => ({
-                id: '',
-                $seenFileId: row.fileId,
-                $gone: isOwn,
-                authorId: row.ownerId,
-                name: row.name,
-                imageUrl: row.imageUrl,
-                thumbnailImageUrl: row.thumbnailImageUrl,
-                releaseStatus: ''
-            }));
+            seenByUser.set(
+                userId,
+                rows.map((row) => ({
+                    id: '',
+                    $seenFileId: row.fileId,
+                    $gone: isOwn,
+                    authorId: row.ownerId,
+                    name: row.name,
+                    imageUrl: row.imageUrl,
+                    thumbnailImageUrl: row.thumbnailImageUrl,
+                    releaseStatus: ''
+                }))
+            );
         } catch (err) {
             // e.g. a server older than this feature: the tab just shows what it had.
             console.warn('Failed to load seen avatars', err);
@@ -254,6 +258,15 @@
         for (const ref of cachedAvatars.values()) {
             if (ref.authorId === userId && !avatars.has(ref.id)) {
                 userDialog.value.avatars.push(ref);
+                avatars.add(ref.id);
+            }
+        }
+        // Results of an earlier external lookup: the remote refresh is skipped when
+        // coming back to the same user, so without this they would be lost.
+        for (const ref of remoteByUser.get(userId) ?? []) {
+            if (!avatars.has(ref.id)) {
+                userDialog.value.avatars.push(ref);
+                avatars.add(ref.id);
             }
         }
         sortUserDialogAvatars(userDialog.value.avatars);
@@ -270,17 +283,20 @@
             userDialogAvatars.value.forEach((avatar) => {
                 avatars.add(avatar.id);
             });
+            const fetched = [];
             if (data && typeof data === 'object') {
                 data.forEach((avatar) => {
                     if (avatar.id && !avatars.has(avatar.id)) {
                         if (avatar.authorId === userId) {
                             userDialog.value.avatars.push(avatar);
+                            fetched.push(avatar);
                         } else {
                             console.error(`Avatar authorId mismatch for ${avatar.id} - ${avatar.name}`);
                         }
                     }
                 });
             }
+            remoteByUser.set(userId, fetched);
             userDialog.value.isAvatarsLoading = false;
         }
         sortUserDialogAvatars(userDialog.value.avatars);
