@@ -120,7 +120,7 @@ describe('API keys', () => {
             profilePictureUrl: 'https://img/full.png'
         });
         const stored = await handle.configRepository.getString('VRCX_ServerApiKeys', '');
-        expect(stored).not.toContain(body.key.split('_')[2]);
+        expect(stored).not.toContain(body.key.split('_').slice(2).join('_'));
         const listed = await call('/api/keys', { key: session });
         expect(JSON.stringify(listed.body)).not.toContain('hash');
     });
