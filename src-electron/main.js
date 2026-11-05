@@ -19,6 +19,7 @@ const os = require('os');
 const { WebSocket: WsClient } = require('ws');
 const { applyApiKeysFrameOverride } = require('./apiKeysFrame');
 const { verifyWithCustomCa } = require('./customCaTrust');
+const { refreshWithRetry, isTransientStatus } = require('./sessionRetry');
 
 //app.disableHardwareAcceleration();
 
@@ -578,23 +579,30 @@ async function refreshServerSession() {
     if (!serverUrl || !serverToken) {
         return false;
     }
-    try {
-        const { status: httpStatus, body } = await fetchJson(`${serverUrl}/api/session/refresh`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${serverToken}`
-            },
-            body: '{}'
-        });
-        if (httpStatus !== 200 || !body?.ok || !body.token) {
-            return false;
+    // Retried while the server is unreachable (autostart can beat the
+    // network); a server that answers and refuses the token ends it at once.
+    return refreshWithRetry(async () => {
+        try {
+            const { status: httpStatus, body } = await fetchJson(`${serverUrl}/api/session/refresh`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${serverToken}`
+                },
+                body: '{}'
+            });
+            if (isTransientStatus(httpStatus)) {
+                return 'unreachable';
+            }
+            if (httpStatus !== 200 || !body?.ok || !body.token) {
+                return 'rejected';
+            }
+            completeSession(serverUrl, body.token);
+            return 'ok';
+        } catch {
+            return 'unreachable';
         }
-        completeSession(serverUrl, body.token);
-        return true;
-    } catch {
-        return false;
-    }
+    });
 }
 
 /**

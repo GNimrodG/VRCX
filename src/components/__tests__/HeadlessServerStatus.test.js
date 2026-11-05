@@ -72,6 +72,21 @@ describe('HeadlessServerStatus.vue (web client)', () => {
         expect(wrapper.find('[title="web.example:9000: status_bar.headless_unreachable"]').exists()).toBe(true);
     });
 
+    it('greys out the active server in the list until it is connected', async () => {
+        fetch.mockRejectedValue(new Error('Failed to fetch'));
+        await mountComponent({ open: true });
+        const row = wrapper.find('[data-connected]');
+        expect(row.attributes('data-connected')).toBe('false');
+        expect(row.classes()).toContain('opacity-50');
+    });
+
+    it('shows the active server at full strength once connected', async () => {
+        await mountComponent({ open: true });
+        const row = wrapper.find('[data-connected]');
+        expect(row.attributes('data-connected')).toBe('true');
+        expect(row.classes()).not.toContain('opacity-50');
+    });
+
     it('reacts to the browser going offline without polling', async () => {
         await mountComponent();
         vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);

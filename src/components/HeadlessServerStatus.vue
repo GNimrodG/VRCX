@@ -32,7 +32,9 @@
                     <div
                         v-for="server in servers"
                         :key="server.url"
-                        class="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-accent/60">
+                        class="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-accent/60 transition-opacity"
+                        :class="server.active && !status.reachable ? 'opacity-50' : ''"
+                        :data-connected="server.active ? String(Boolean(status.reachable)) : undefined">
                         <span
                             class="inline-block size-2 rounded-full shrink-0"
                             :class="
