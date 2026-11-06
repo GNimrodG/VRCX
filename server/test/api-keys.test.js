@@ -165,6 +165,41 @@ describe('API keys', () => {
         expect(wide.body.total).toBe(5); // days is capped at 90
     });
 
+    it('reports co-presence for several users from one POST, grouped by user', async () => {
+        const { body } = await mint(['playtime:read']);
+        const A = 'usr_00000000-0000-0000-0000-00000000000a';
+        const B = 'usr_00000000-0000-0000-0000-00000000000b';
+        const NEVER_MET = 'usr_00000000-0000-0000-0000-0000000000ee';
+        const post = (b, key = body.key) => call('/api/v1/time-together', { key, method: 'POST', body: b });
+
+        const all = await post({ ids: [A, B, NEVER_MET, A] });
+        expect(all.status).toBe(200);
+        expect(Object.keys(all.body.users)).toEqual([A, B, NEVER_MET]);
+        expect(all.body.users[A].total).toBe(3);
+        expect(all.body.users[B].total).toBe(2);
+        expect(all.body.users[NEVER_MET]).toEqual({ total: 0, results: [] });
+        expect(all.body.users[A].results.every((r) => r.userId === A)).toBe(true);
+        // identical to the single-user GET
+        const single = await call(`/api/v1/time-together/${A}`, { key: body.key });
+        expect(all.body.users[A].results).toEqual(single.body.results);
+
+        const oneOnOne = await post({ ids: [A, B], maxOthers: 0 });
+        expect(oneOnOne.body.users[A].total).toBe(1);
+        expect(oneOnOne.body.users[B].total).toBe(0);
+
+        const paged = await post({ ids: [A, B], limit: 1, offset: 1 });
+        expect(paged.body.users[A]).toMatchObject({ total: 3, results: [expect.any(Object)] });
+        expect(paged.body.users[B].results).toHaveLength(1);
+
+        expect((await post({})).status).toBe(400);
+        expect((await post({ ids: [] })).status).toBe(400);
+        expect((await post({ ids: [A, 'nope'] })).status).toBe(400);
+        const tooMany = Array.from({ length: 51 }, (_, i) => `usr_00000000-0000-0000-0000-${String(i).padStart(12, '0')}`);
+        expect((await post({ ids: tooMany })).status).toBe(400);
+        expect((await post({ ids: [A] }, (await mint(['users:read'])).body.key)).status).toBe(403);
+        expect((await post({ ids: [A] }, null)).status).toBe(401);
+    });
+
     it('looks up cached users by id, sharing nothing else', async () => {
         const { body } = await mint(['users:read']);
         const one = await call('/api/v1/users/usr_00000000-0000-0000-0000-00000000000a', { key: body.key });

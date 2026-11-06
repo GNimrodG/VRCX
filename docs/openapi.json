@@ -195,6 +195,148 @@
             }
           }
         }
+      },
+      "post": {
+        "operationId": "postTimeTogether",
+        "summary": "When you were in the same instance as several users (ids in the body)",
+        "description": "Same data as GET /api/v1/time-together/{userId}, for up to 50 users in one request, grouped by user id (every requested id is present, with `total: 0` if you have not met). `limit` and `offset` apply to each user's list separately. Read-only: nothing is created or changed.",
+        "tags": [
+          "playtime"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "playtime:read",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ids"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^usr_[0-9a-f-]+$"
+                    }
+                  },
+                  "days": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 90,
+                    "default": 90
+                  },
+                  "maxOthers": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Only intervals with at most this many other players. 0 = 1-on-1 only."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500,
+                    "default": 100
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Intervals per user, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "since",
+                    "users"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "Start of the window used"
+                    },
+                    "users": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "total",
+                          "results"
+                        ],
+                        "properties": {
+                          "total": {
+                            "type": "integer",
+                            "description": "Matching intervals before pagination"
+                          },
+                          "results": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/TogetherInterval"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing, malformed or too many ids",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key lacks the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/time-together/{userId}": {

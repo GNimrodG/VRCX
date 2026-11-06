@@ -63,7 +63,7 @@ the spec is generated from it, so they cannot describe different things.
 | Scope | Unlocks |
 |---|---|
 | `profile:read` | `GET /api/v1/me` |
-| `playtime:read` | `GET /api/v1/time-together`, `GET /api/v1/time-together/{userId}` |
+| `playtime:read` | `GET /api/v1/time-together`, `POST /api/v1/time-together`, `GET /api/v1/time-together/{userId}` |
 | `users:read` | `GET /api/v1/users?ids=`, `POST /api/v1/users`, `GET /api/v1/users/{userId}` |
 
 New endpoint = add its scope to `SCOPES` in `server/src/api-keys.js` if it needs a new one, add a route entry in `public-api-routes.js`, then `pnpm run openapi`.
@@ -99,6 +99,12 @@ calendar. One entry per shared stay, newest first:
   only), `limit` (default 100, max 500), `offset`. `total` is the match count
   before pagination.
 - `GET /api/v1/time-together/{userId}` is the same, for one user.
+- `POST /api/v1/time-together` is the same for up to 50 users at once, with a JSON body
+  `{ "ids": ["usr_…", …], "days"?, "maxOthers"?, "limit"?, "offset"? }` (1-50 distinct
+  `usr_` ids; the options mean what the query parameters above do). The response groups by
+  user and always includes every requested id, with `total: 0` for someone you haven't met:
+  `{ "ok": true, "since": "…", "users": { "<id>": { "total": 3, "results": [ … ] } } }`.
+  `limit`/`offset` apply to each user's list separately. The body is capped at 64 KiB.
 
 How it is derived: your stays are `gamelog_location` rows (join time + ms
 stayed); another player's presence is an `OnPlayerLeft` row in

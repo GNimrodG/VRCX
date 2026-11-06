@@ -58,11 +58,11 @@ async function resolveSelfId(handle, getCurrentUser) {
  *
  * @param {import('./db.js').DatabaseHandle} handle
  * @param {string} selfId
- * @param {{ userId?: string; days: number; maxOthers: number | null }} query
+ * @param {{ userId?: string; userIds?: Set<string>; days: number; maxOthers: number | null }} query
  * @returns {{ userId: string; start: string; end: string; durationMs: number; otherPlayerCount: number }[]} Newest
  *   first
  */
-function computeTogether(handle, selfId, { userId, days, maxOthers }) {
+function computeTogether(handle, selfId, { userId, userIds, days, maxOthers }) {
     const since = new Date(Date.now() - days * DAY_MS).toISOString();
     const stays = handle.sqlite.Execute(
         `SELECT created_at, location, time FROM gamelog_location
@@ -99,6 +99,9 @@ function computeTogether(handle, selfId, { userId, days, maxOthers }) {
         }
         for (const subject of present) {
             if (userId && subject.userId !== userId) {
+                continue;
+            }
+            if (userIds && !userIds.has(subject.userId)) {
                 continue;
             }
             const start = Math.max(stayStart, subject.start);
@@ -229,6 +232,20 @@ const okEnvelope = (key, schema) => ({
  */
 
 const MAX_IDS = 50;
+const USER_ID_PATTERN = '^usr_[0-9a-f-]+$';
+const USER_ID_RE = new RegExp(USER_ID_PATTERN);
+
+/**
+ * @param {any} ids A request body's `ids`
+ * @returns {string[] | null} The distinct ids, or `null` if it isn't an array of 1-{@link MAX_IDS} user ids
+ */
+function parseUserIdList(ids) {
+    if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string' && USER_ID_RE.test(id))) {
+        return null;
+    }
+    const distinct = [...new Set(ids)];
+    return distinct.length >= 1 && distinct.length <= MAX_IDS ? distinct : null;
+}
 
 /** @param {any} user */
 function publicUser(user) {
@@ -406,6 +423,114 @@ export const routes = [
         handler: togetherHandler(false)
     },
     {
+        method: 'POST',
+        path: '/api/v1/time-together',
+        scope: 'playtime:read',
+        operationId: 'postTimeTogether',
+        summary: 'When you were in the same instance as several users (ids in the body)',
+        description: `Same data as GET /api/v1/time-together/{userId}, for up to ${MAX_IDS} users in one request, grouped by user id (every requested id is present, with \`total: 0\` if you have not met). \`limit\` and \`offset\` apply to each user's list separately. Read-only: nothing is created or changed.`,
+        requestBody: {
+            required: true,
+            content: {
+                'application/json': {
+                    schema: {
+                        type: 'object',
+                        required: ['ids'],
+                        properties: {
+                            ids: {
+                                type: 'array',
+                                minItems: 1,
+                                maxItems: MAX_IDS,
+                                items: { type: 'string', pattern: USER_ID_PATTERN }
+                            },
+                            days: { type: 'integer', minimum: 1, maximum: MAX_DAYS, default: MAX_DAYS },
+                            maxOthers: {
+                                type: 'integer',
+                                minimum: 0,
+                                description: 'Only intervals with at most this many other players. 0 = 1-on-1 only.'
+                            },
+                            limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT, default: DEFAULT_LIMIT },
+                            offset: { type: 'integer', minimum: 0, default: 0 }
+                        }
+                    }
+                }
+            }
+        },
+        responses: {
+            200: {
+                description: 'Intervals per user, newest first',
+                content: {
+                    'application/json': {
+                        schema: {
+                            type: 'object',
+                            required: ['ok', 'since', 'users'],
+                            properties: {
+                                ok: { type: 'boolean', enum: [true] },
+                                since: { type: 'string', format: 'date-time', description: 'Start of the window used' },
+                                users: {
+                                    type: 'object',
+                                    additionalProperties: {
+                                        type: 'object',
+                                        required: ['total', 'results'],
+                                        properties: {
+                                            total: {
+                                                type: 'integer',
+                                                description: 'Matching intervals before pagination'
+                                            },
+                                            results: { type: 'array', items: ref('TogetherInterval') }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            400: {
+                description: 'Missing, malformed or too many ids',
+                content: { 'application/json': { schema: ref('Error') } }
+            },
+            ...errorResponses(401, 403)
+        },
+        async handler({ handle, getCurrentUser, body }) {
+            const ids = parseUserIdList(body?.ids);
+            if (!ids) {
+                return {
+                    status: 400,
+                    body: { ok: false, error: `body must include "ids": [1-${MAX_IDS} distinct "usr_…" ids]` }
+                };
+            }
+            const num = (value, fallback, max) =>
+                intParam(typeof value === 'number' ? String(value) : null, fallback, max);
+            const days = Math.max(1, num(body.days, MAX_DAYS, MAX_DAYS));
+            const maxOthers = typeof body.maxOthers === 'number' ? num(body.maxOthers, 0, 1e6) : null;
+            const limit = Math.max(1, num(body.limit, DEFAULT_LIMIT, MAX_LIMIT));
+            const offset = num(body.offset, 0, 1e9);
+            const all = computeTogether(handle, await resolveSelfId(handle, getCurrentUser), {
+                userIds: new Set(ids),
+                days,
+                maxOthers
+            });
+            const byUser = Object.fromEntries(ids.map((id) => [id, []]));
+            for (const interval of all) {
+                byUser[interval.userId].push(interval);
+            }
+            return {
+                status: 200,
+                body: {
+                    ok: true,
+                    since: new Date(Date.now() - days * DAY_MS).toISOString(),
+                    users: Object.fromEntries(
+                        Object.entries(byUser).map(([id, list]) => [
+                            id,
+                            { total: list.length, results: list.slice(offset, offset + limit) }
+                        ])
+                    )
+                }
+            };
+        }
+    },
+    {
         path: '/api/v1/time-together/{userId}',
         scope: 'playtime:read',
         operationId: 'getTimeTogether',
@@ -483,7 +608,7 @@ export const routes = [
                                 type: 'array',
                                 minItems: 1,
                                 maxItems: MAX_IDS,
-                                items: { type: 'string', pattern: '^usr_[0-9a-f-]+$' }
+                                items: { type: 'string', pattern: USER_ID_PATTERN }
                             }
                         }
                     }
@@ -492,9 +617,12 @@ export const routes = [
         },
         responses: usersResponses,
         handler({ getCachedUser, body }) {
-            const ids = body?.ids;
-            if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string' && /^usr_[0-9a-f-]+$/.test(id))) {
-                return { status: 400, body: { ok: false, error: 'body must be { "ids": ["usr_…", …] }' } };
+            const ids = parseUserIdList(body?.ids);
+            if (!ids) {
+                return {
+                    status: 400,
+                    body: { ok: false, error: `body must be { "ids": [1-${MAX_IDS} distinct "usr_…" ids] }` }
+                };
             }
             return lookupUsers(ids, getCachedUser);
         }
