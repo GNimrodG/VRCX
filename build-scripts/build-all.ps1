@@ -30,10 +30,6 @@ $SetupName = "VRCX_" + $Date + "_Setup_x64.exe"
 
 Write-Host "Building .Net..." -ForegroundColor Green
 
-if ($IsWindows) {
-    dotnet build Dotnet\VRCX-Cef.csproj -p:Configuration=Release -p:WarningLevel=0 -p:Platform=x64 -t:"Clean;Build" -maxcpucount --runtime win-x64 --self-contained
-}
-
 if ($IsLinux) {
     if ($BuildArm64) {
         dotnet build 'Dotnet/VRCX-Electron.csproj' -p:Configuration=Release -p:WarningLevel=0 -p:Platform=arm64 -t:"Clean;Build" -maxcpucount --runtime linux-arm64

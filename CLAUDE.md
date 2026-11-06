@@ -39,7 +39,7 @@ Upstream is a fast-moving, UI-heavy project, and `.github/CONTRIBUTING.md` says 
 
 ### Desktop client OS support
 
-The `PLATFORM` build flag names are historical, not descriptive: `PLATFORM=windows` builds the **CefSharp** client (upstream's original native-Windows shell, `Dotnet/AppApi/Cef/**`) — it does not run on Linux. `PLATFORM=linux` builds the **Electron** client (`Dotnet/AppApi/Electron/**`, `Dotnet/VRCX-Electron.csproj`) — despite the flag name, the Electron *shell* itself and its headless-server connection code (phase 5) are plain cross-platform Node/Chromium and run fine on Windows too, unlike CefSharp which only runs on Windows.
+The `PLATFORM` build flag names are historical, not descriptive: `PLATFORM=windows` names the **CefSharp** client (upstream's original native-Windows shell). **This fork deleted that client's code (`Dotnet/Cef/**`, `Dotnet/AppApi/Cef/**`, `Dotnet/Overlay/Cef/**`, `VRCX-Cef.csproj`) on 2026-11-06** and only ships Electron; the `WINDOWS` branches in `src/**` stay, since removing them would only create merge conflicts. `PLATFORM=linux` builds the **Electron** client (`Dotnet/AppApi/Electron/**`, `Dotnet/VRCX-Electron.csproj`) — despite the flag name, the Electron *shell* itself and its headless-server connection code (phase 5) are plain cross-platform Node/Chromium and run fine on Windows too, unlike CefSharp which only runs on Windows.
 
 What's actually OS-tested inside `Dotnet/AppApi/Electron/**`, verified live (2026-08-17, Windows, against a self-hosted server with a step-ca-issued cert):
 
@@ -259,6 +259,7 @@ Pick a tag deliberately — `git tag -l 'v*' | sort -V | tail -5` (or the [relea
 1. `package.json` — dependency bumps land next to our identity/scripts changes. Keep both sides; take upstream's dependency block wholesale.
 2. `.github/workflows/ci.yaml` — take upstream's job definitions, keep our `on:` block.
 3. `src/plugins/interopApi.js`, `src/vite.config.js` — see §5.
+4. **Modify/delete conflicts on the deleted CefSharp client** (`Dotnet/Cef/**`, `Dotnet/AppApi/Cef/**`, `Dotnet/Overlay/Cef/**`, `Dotnet/VRCX-Cef.csproj`, `build-scripts/dotnet/build-dotnet.cmd`) whenever upstream edits them (CefSharp bumps, mostly). Always resolve by deleting: `git rm -r -f <path>`. If upstream adds a new file under one of those folders, delete it too. Also drop any re-added `VRCX-Cef.csproj` entry in `VRCX.slnx`, `build-scripts/build-all.ps1` or `.github/workflows/ci.yaml`.
 
 Files under `src/services/database/**` and `src/services/config.js` should merge **cleanly** — we do not modify them. A conflict there means someone broke invariant 1.
 

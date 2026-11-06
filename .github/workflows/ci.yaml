@@ -73,26 +73,31 @@ jobs:
           dotnet format whitespace --no-restore --verify-no-changes
           dotnet format style --no-restore --verify-no-changes
 
-  test_build_dotnet_windows:
-    runs-on: windows-latest
+  # Compiles the shipped .NET side (the Electron sidecar) on every PR and push,
+  # so a C# error surfaces here instead of when a release tag is built by
+  # desktop-release.yaml. Same dotnet invocation as that workflow; the two legs
+  # cover the OS-conditional code (win-x64 and linux-x64).
+  build_dotnet_electron:
+    name: Build .NET (${{ matrix.rid }})
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            runs-on: ubuntu-latest
+          - rid: win-x64
+            runs-on: windows-latest
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: '10.0.x'
-      - name: Set version
-        run: |
-          echo "1900.0.0" > Version
-          cat Version
-      - uses: actions/cache@v5
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/Dotnet/VRCX-Cef.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
-      - name: Build Cef .NET Application
-        run: dotnet build Dotnet/VRCX-Cef.csproj -p:Configuration=Release -p:WarningLevel=0 -p:Platform=x64 -t:"Clean;Build" -maxcpucount --runtime win-x64 --self-contained
+      - name: Build the Electron .NET project
+        timeout-minutes: 10
+        run: dotnet build Dotnet/VRCX-Electron.csproj -p:Configuration=Release -p:WarningLevel=0 -p:Platform=x64 -p:PlatformTarget=x64 -p:RestorePackagesConfig=true -t:"Restore;Clean;Build" -m -r ${{ matrix.rid }}
