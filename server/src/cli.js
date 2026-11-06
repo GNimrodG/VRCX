@@ -546,6 +546,16 @@ async function main() {
         const { stores } = await bootstrapSession(handle);
         installGroupInstanceRelay(globalThis.WebApi);
 
+        // Must be attached *before* restoreSession(): the login can succeed
+        // and the app then log itself out while we wait for the pipeline
+        // below (found live 2026-11-05: a connect timeout on
+        // auth/user/friends during boot). Attached after that await, the
+        // supervisor saw isLoggedIn already false, remembered no user and
+        // never armed, and the boot retry loop is skipped when the login
+        // itself succeeded, so nothing ever retried. Watching from the start
+        // sees the false -> true -> false transitions.
+        superviseSession(stores, handle);
+
         const user = await restoreSession(stores).catch(() => null);
         if (user?.id) {
             await waitForPipelineConnected().catch((err) => {
@@ -566,10 +576,6 @@ async function main() {
                 });
             });
         }
-
-        // Covers the case the block above can't: boot logged in fine, then
-        // VRChat/the network hiccuped and the app logged itself out.
-        superviseSession(stores, handle);
 
         const { server, streamClientCount, closeSockets, useHttps } = await createHttpServer(handle, {
             tls,
