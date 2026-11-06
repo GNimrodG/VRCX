@@ -36,7 +36,7 @@ import {
 import { generateTotpSecret, totpProvisioningUri, verifyTotpCode } from './totp.js';
 import { checkForUpdate } from './update-check.js';
 import { installWebApi } from './webapi-init.js';
-import { userRequest } from '../../src/api/index.js';
+import { userRequest } from '../../src/api';
 
 import { AppDebug } from '../../src/services/appConfig.js';
 
