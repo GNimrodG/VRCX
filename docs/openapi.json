@@ -3,7 +3,7 @@
   "info": {
     "title": "VRCX-Headless external API",
     "version": "1",
-    "description": "Read-only, API-key-authenticated access to the headless server's local cache. Opt-in via VRCX_API_ENABLED. Scopes: `profile:read` (Current user: id, display name, profile picture); `playtime:read` (When you were in the same instance as other players, with start/end and player count (from the game log)); `users:read` (Cached name and picture for users, looked up by id)."
+    "description": "Read-only, API-key-authenticated access to the headless server's local cache (POST is used only to send long id lists in a body). Opt-in via VRCX_API_ENABLED. Scopes: `profile:read` (Current user: id, display name, profile picture); `playtime:read` (When you were in the same instance as other players, with start/end and player count (from the game log)); `users:read` (Cached name and picture for users, looked up by id)."
   },
   "paths": {
     "/api/v1/me": {
@@ -349,6 +349,111 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Cached users keyed by id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "users",
+                    "missing"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "users": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "$ref": "#/components/schemas/CachedUser"
+                      }
+                    },
+                    "missing": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing ids or too many",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key lacks the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "postUsers",
+        "summary": "Cached details for several users (ids in the body)",
+        "description": "Same as GET /api/v1/users, with the ids in a JSON body instead of the query string, so long lists don't hit URL length limits. Up to 50 ids; VRChat is never queried. Ids not cached are listed in `missing`. Read-only: nothing is created or changed.",
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "users:read",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ids"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^usr_[0-9a-f-]+$"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Cached users keyed by id",

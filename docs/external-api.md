@@ -21,7 +21,9 @@ otherwise terminate TLS in a reverse proxy.
 
 ## Design
 
-- **Read-only.** Only `GET` is accepted on `/api/v1/*`. Keys never reach
+- **Read-only.** `GET` is accepted on `/api/v1/*`; `POST` only on routes that
+  declare it (batch lookups whose id list is too long for a URL), and never
+  mutates anything. Keys never reach
   `/api/rpc`, the `/api/stream` or `/api/agent` WebSockets, or key management.
 - **Local cache only.** Routes read `VRCX.sqlite3` and the already-logged-in
   user in memory. They never call VRChat, so a consumer can't burn the
@@ -62,14 +64,14 @@ the spec is generated from it, so they cannot describe different things.
 |---|---|
 | `profile:read` | `GET /api/v1/me` |
 | `playtime:read` | `GET /api/v1/time-together`, `GET /api/v1/time-together/{userId}` |
-| `users:read` | `GET /api/v1/users?ids=`, `GET /api/v1/users/{userId}` |
+| `users:read` | `GET /api/v1/users?ids=`, `POST /api/v1/users`, `GET /api/v1/users/{userId}` |
 
 New endpoint = add its scope to `SCOPES` in `server/src/api-keys.js` if it needs a new one, add a route entry in `public-api-routes.js`, then `pnpm run openapi`.
 
 ## Endpoints
 
 All responses are JSON with `ok`. Errors: `401` missing/invalid/expired key,
-`403` key lacks the scope, `405` non-GET, `404` unknown route (or API disabled).
+`403` key lacks the scope, `405` method not allowed on that path, `404` unknown route (or API disabled).
 Full schemas: [`openapi.json`](openapi.json).
 
 ### `GET /api/v1/me` (`profile:read`)
@@ -106,12 +108,17 @@ in progress (no duration yet) are omitted; only stays that **start** inside the
 window are considered; it only covers data recorded by a desktop agent's
 game-log forwarding. Instance ids are deliberately not exposed.
 
-### `GET /api/v1/users/{userId}` and `GET /api/v1/users?ids=a,b,c` (`users:read`)
+### `GET /api/v1/users/{userId}`, `GET /api/v1/users?ids=a,b,c` and `POST /api/v1/users` (`users:read`)
 
 Cached `id`, `displayName`, `profilePictureUrl`, `avatarThumbnailUrl`, from the
 server's in-memory user cache; VRChat is never queried. The list form takes up
 to 50 ids and returns `{ users: { <id>: {…} }, missing: [ids not cached] }`; the
-single form returns `404` if the user isn't cached. The cache fills as the
+single form returns `404` if the user isn't cached.
+
+`POST /api/v1/users` is the same lookup with the ids in a JSON body, for lists
+that would overflow a URL: `{ "ids": ["usr_…", …] }` (1-50 `usr_` ids, duplicates
+collapsed), same response. A malformed body or bad id is a `400`; the body is
+capped at 64 KiB. The cache fills as the
 server sees users (friends, instance members), so someone you only met once
 long ago may be missing.
 

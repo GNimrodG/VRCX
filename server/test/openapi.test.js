@@ -18,7 +18,7 @@ describe('OpenAPI spec', () => {
         for (const route of routes) {
             expect(Object.keys(SCOPES)).toContain(route.scope);
             const sample = route.path.replace('{userId}', 'usr_00000000-0000-0000-0000-000000000001');
-            expect(matchRoute(sample)?.route).toBe(route);
+            expect(matchRoute(sample, route.method ?? 'GET')?.route).toBe(route);
         }
         for (const [, ref] of JSON.stringify(spec)
             .matchAll(/#\/components\/schemas\/(\w+)/g)
@@ -26,5 +26,6 @@ describe('OpenAPI spec', () => {
             expect(spec.components.schemas[ref]).toBeDefined();
         }
         expect(new Set(routes.map((r) => r.operationId)).size).toBe(routes.length);
+        expect(new Set(routes.map((r) => `${r.method ?? 'GET'} ${r.path}`)).size).toBe(routes.length);
     });
 });

@@ -14,7 +14,37 @@ import http from 'node:http';
 import https from 'node:https';
 
 import { authenticateApiKey, readApiKey, SCOPES } from './api-keys.js';
-import { buildOpenApiSpec, matchRoute } from './public-api-routes.js';
+import { allowedMethods, buildOpenApiSpec, matchRoute } from './public-api-routes.js';
+
+const MAX_BODY_BYTES = 64 * 1024; // a 50-id batch is ~2 KiB; this is already generous
+
+/**
+ * @param {import('node:http').IncomingMessage} req
+ * @returns {Promise<any>} The parsed JSON body; throws on oversize or invalid JSON
+ */
+function readJsonBody(req) {
+    return new Promise((resolve, reject) => {
+        const chunks = [];
+        let bytes = 0;
+        req.on('data', (chunk) => {
+            bytes += chunk.length;
+            if (bytes > MAX_BODY_BYTES) {
+                reject(new Error('Request body too large'));
+                req.destroy();
+                return;
+            }
+            chunks.push(chunk);
+        });
+        req.on('end', () => {
+            try {
+                resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+            } catch {
+                reject(new Error('Invalid JSON body'));
+            }
+        });
+        req.on('error', reject);
+    });
+}
 
 /**
  * @param {import('./db.js').DatabaseHandle} handle
@@ -33,14 +63,16 @@ export async function handlePublicApi(handle, req, url, options) {
     if (!url.pathname.startsWith('/api/v1/') && url.pathname !== '/api/v1') {
         return null;
     }
-    if (req.method !== 'GET') {
+    // GET everywhere; POST only on the routes that declare it (batch lookups
+    // whose id list is too long for a URL). Nothing here ever mutates.
+    if (req.method !== 'GET' && req.method !== 'POST') {
         return {
             status: 405,
-            body: { ok: false, error: 'Read-only API: GET only' }
+            body: { ok: false, error: 'Read-only API: GET (or POST for batch lookups) only' }
         };
     }
     // The spec describes the API but exposes no data, so it needs no key.
-    if (url.pathname === '/api/v1/openapi.json') {
+    if (req.method === 'GET' && url.pathname === '/api/v1/openapi.json') {
         return { status: 200, body: buildOpenApiSpec(SCOPES) };
     }
     const key = await authenticateApiKey(handle, readApiKey(req));
@@ -50,9 +82,11 @@ export async function handlePublicApi(handle, req, url, options) {
             body: { ok: false, error: 'Missing, invalid or expired API key' }
         };
     }
-    const matched = matchRoute(url.pathname);
+    const matched = matchRoute(url.pathname, req.method);
     if (!matched) {
-        return { status: 404, body: { ok: false, error: 'Not found' } };
+        return allowedMethods(url.pathname).length > 0
+            ? { status: 405, body: { ok: false, error: `${req.method} not allowed here` } }
+            : { status: 404, body: { ok: false, error: 'Not found' } };
     }
     if (!key.scopes.includes(matched.route.scope)) {
         return {
@@ -60,8 +94,17 @@ export async function handlePublicApi(handle, req, url, options) {
             body: { ok: false, error: `Key lacks scope ${matched.route.scope}` }
         };
     }
+    let body;
+    if (req.method === 'POST') {
+        try {
+            body = await readJsonBody(req);
+        } catch (err) {
+            return { status: 400, body: { ok: false, error: err.message } };
+        }
+    }
     return matched.route.handler({
         handle,
+        body,
         getCurrentUser: () => options.getCurrentUser?.(),
         getCachedUser: (id) => options.getCachedUser?.(id) ?? null,
         url,

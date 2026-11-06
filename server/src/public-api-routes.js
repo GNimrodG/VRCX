@@ -212,16 +212,20 @@ const okEnvelope = (key, schema) => ({
  * @property {(id: string) => any} getCachedUser
  * @property {URL} url
  * @property {Record<string, string>} params
+ * @property {any} [body] Parsed JSON body (`POST` routes only)
  *
  * @typedef {object} Route
+ * @property {'GET' | 'POST'} [method] Defaults to `GET`. `POST` exists only to carry data too long for a query string
+ *   (a batch of ids); it never mutates anything.
  * @property {string} path OpenAPI-style template, e.g. `/api/v1/x/{id}`
+ * @property {object} [requestBody] OpenAPI request body object
  * @property {string} scope
  * @property {string} operationId
  * @property {string} summary
  * @property {string} [description]
  * @property {object[]} [parameters] OpenAPI parameter objects
  * @property {Record<string, object>} responses
- * @property {(ctx: RouteContext) => { status: number; body: any }} handler
+ * @property {(ctx: RouteContext) => { status: number; body: any } | Promise<{ status: number; body: any }>} handler
  */
 
 const MAX_IDS = 50;
@@ -235,6 +239,50 @@ function publicUser(user) {
         avatarThumbnailUrl: user.currentAvatarThumbnailImageUrl || ''
     };
 }
+
+/**
+ * @param {string[]} rawIds
+ * @param {(id: string) => any} getCachedUser
+ * @returns {{ status: number; body: any }}
+ */
+function lookupUsers(rawIds, getCachedUser) {
+    const ids = [...new Set(rawIds)];
+    if (ids.length === 0 || ids.length > MAX_IDS) {
+        return { status: 400, body: { ok: false, error: `ids must list 1-${MAX_IDS} user ids` } };
+    }
+    const users = {};
+    const missing = [];
+    for (const id of ids) {
+        const user = getCachedUser(id);
+        if (user) {
+            users[id] = publicUser(user);
+        } else {
+            missing.push(id);
+        }
+    }
+    return { status: 200, body: { ok: true, users, missing } };
+}
+
+const usersResponses = {
+    200: {
+        description: 'Cached users keyed by id',
+        content: {
+            'application/json': {
+                schema: {
+                    type: 'object',
+                    required: ['ok', 'users', 'missing'],
+                    properties: {
+                        ok: { type: 'boolean', enum: [true] },
+                        users: { type: 'object', additionalProperties: ref('CachedUser') },
+                        missing: { type: 'array', items: { type: 'string' } }
+                    }
+                }
+            }
+        }
+    },
+    400: { description: 'Missing ids or too many', content: { 'application/json': { schema: ref('Error') } } },
+    ...errorResponses(401, 403)
+};
 
 const togetherResponses = {
     200: {
@@ -411,42 +459,44 @@ export const routes = [
                 schema: { type: 'string' }
             }
         ],
-        responses: {
-            200: {
-                description: 'Cached users keyed by id',
-                content: {
-                    'application/json': {
-                        schema: {
-                            type: 'object',
-                            required: ['ok', 'users', 'missing'],
-                            properties: {
-                                ok: { type: 'boolean', enum: [true] },
-                                users: { type: 'object', additionalProperties: ref('CachedUser') },
-                                missing: { type: 'array', items: { type: 'string' } }
+        responses: usersResponses,
+        handler({ getCachedUser, url }) {
+            return lookupUsers((url.searchParams.get('ids') ?? '').split(',').filter(Boolean), getCachedUser);
+        }
+    },
+    {
+        method: 'POST',
+        path: '/api/v1/users',
+        scope: 'users:read',
+        operationId: 'postUsers',
+        summary: 'Cached details for several users (ids in the body)',
+        description: `Same as GET /api/v1/users, with the ids in a JSON body instead of the query string, so long lists don't hit URL length limits. Up to ${MAX_IDS} ids; VRChat is never queried. Ids not cached are listed in \`missing\`. Read-only: nothing is created or changed.`,
+        requestBody: {
+            required: true,
+            content: {
+                'application/json': {
+                    schema: {
+                        type: 'object',
+                        required: ['ids'],
+                        properties: {
+                            ids: {
+                                type: 'array',
+                                minItems: 1,
+                                maxItems: MAX_IDS,
+                                items: { type: 'string', pattern: '^usr_[0-9a-f-]+$' }
                             }
                         }
                     }
                 }
-            },
-            400: { description: 'Missing ids or too many', content: { 'application/json': { schema: ref('Error') } } },
-            ...errorResponses(401, 403)
+            }
         },
-        handler({ getCachedUser, url }) {
-            const ids = [...new Set((url.searchParams.get('ids') ?? '').split(',').filter(Boolean))];
-            if (ids.length === 0 || ids.length > MAX_IDS) {
-                return { status: 400, body: { ok: false, error: `ids must list 1-${MAX_IDS} user ids` } };
+        responses: usersResponses,
+        handler({ getCachedUser, body }) {
+            const ids = body?.ids;
+            if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string' && /^usr_[0-9a-f-]+$/.test(id))) {
+                return { status: 400, body: { ok: false, error: 'body must be { "ids": ["usr_…", …] }' } };
             }
-            const users = {};
-            const missing = [];
-            for (const id of ids) {
-                const user = getCachedUser(id);
-                if (user) {
-                    users[id] = publicUser(user);
-                } else {
-                    missing.push(id);
-                }
-            }
-            return { status: 200, body: { ok: true, users, missing } };
+            return lookupUsers(ids, getCachedUser);
         }
     },
     {
@@ -501,10 +551,14 @@ const matchers = new Map(routes.map((route) => [route, pathMatcher(route)]));
 
 /**
  * @param {string} pathname
+ * @param {string} [method] Matches only routes with this method; omit to match any
  * @returns {{ route: Route; params: Record<string, string> } | null}
  */
-export function matchRoute(pathname) {
+export function matchRoute(pathname, method) {
     for (const route of routes) {
+        if (method && (route.method ?? 'GET') !== method) {
+            continue;
+        }
         const match = matchers.get(route).exec(pathname);
         if (match) {
             return { route, params: { ...match.groups } };
@@ -514,23 +568,31 @@ export function matchRoute(pathname) {
 }
 
 /**
+ * @param {string} pathname
+ * @returns {string[]} Methods some route accepts at this path (empty = no such path)
+ */
+export function allowedMethods(pathname) {
+    return routes.filter((route) => matchers.get(route).test(pathname)).map((route) => route.method ?? 'GET');
+}
+
+/**
  * @param {Record<string, string>} scopes The registry from `./api-keys.js`
  * @returns {object} An OpenAPI 3.1 document
  */
 export function buildOpenApiSpec(scopes) {
     const paths = {};
     for (const route of routes) {
-        paths[route.path] = {
-            get: {
-                operationId: route.operationId,
-                summary: route.summary,
-                ...(route.description ? { description: route.description } : {}),
-                tags: [route.scope.split(':')[0]],
-                security: [{ apiKey: [] }],
-                'x-required-scope': route.scope,
-                ...(route.parameters ? { parameters: route.parameters } : {}),
-                responses: route.responses
-            }
+        paths[route.path] ??= {};
+        paths[route.path][(route.method ?? 'GET').toLowerCase()] = {
+            operationId: route.operationId,
+            summary: route.summary,
+            ...(route.description ? { description: route.description } : {}),
+            tags: [route.scope.split(':')[0]],
+            security: [{ apiKey: [] }],
+            'x-required-scope': route.scope,
+            ...(route.parameters ? { parameters: route.parameters } : {}),
+            ...(route.requestBody ? { requestBody: route.requestBody } : {}),
+            responses: route.responses
         };
     }
     return {
@@ -539,7 +601,7 @@ export function buildOpenApiSpec(scopes) {
             title: 'VRCX-Headless external API',
             version: '1',
             description:
-                "Read-only, API-key-authenticated access to the headless server's local cache. Opt-in via VRCX_API_ENABLED. Scopes: " +
+                "Read-only, API-key-authenticated access to the headless server's local cache (POST is used only to send long id lists in a body). Opt-in via VRCX_API_ENABLED. Scopes: " +
                 Object.entries(scopes)
                     .map(([name, what]) => `\`${name}\` (${what})`)
                     .join('; ') +

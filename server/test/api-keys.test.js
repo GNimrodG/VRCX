@@ -191,6 +191,32 @@ describe('API keys', () => {
         ).toBe(403);
     });
 
+    it('looks up several cached users from a POST body, like the GET list', async () => {
+        const { body } = await mint(['users:read']);
+        const A = 'usr_00000000-0000-0000-0000-00000000000a';
+        const post = (b, key = body.key) => call('/api/v1/users', { key, method: 'POST', body: b });
+
+        const many = await post({ ids: [A, 'usr_00000000-0000-0000-0000-0000000000ff', A] });
+        expect(many.status).toBe(200);
+        expect(Object.keys(many.body.users)).toEqual([A]);
+        expect(many.body.users[A]).toMatchObject({ displayName: 'Alice' });
+        expect(many.body.missing).toEqual(['usr_00000000-0000-0000-0000-0000000000ff']);
+
+        expect((await post({})).status).toBe(400);
+        expect((await post({ ids: [] })).status).toBe(400);
+        expect((await post({ ids: A })).status).toBe(400);
+        expect((await post({ ids: [A, 5] })).status).toBe(400);
+        expect((await post({ ids: [A, 'not-a-user'] })).status).toBe(400);
+        const tooMany = Array.from({ length: 51 }, (_, i) => `usr_00000000-0000-0000-0000-${String(i).padStart(12, '0')}`);
+        expect((await post({ ids: tooMany })).status).toBe(400);
+
+        expect((await post({ ids: [A] }, (await mint(['playtime:read'])).body.key)).status).toBe(403);
+        expect((await post({ ids: [A] }, null)).status).toBe(401);
+        // POST exists only where declared; the single-user route stays GET-only
+        expect((await call(`/api/v1/users/${A}`, { key: body.key, method: 'POST', body: {} })).status).toBe(405);
+        expect((await call('/api/v1/users', { key: body.key, method: 'DELETE' })).status).toBe(405);
+    });
+
     it('serves the key-management page with a CSP pinned to its exact script', async () => {
         const response = await fetch(`${origin}/admin/api-keys`);
         expect(response.status).toBe(200);
