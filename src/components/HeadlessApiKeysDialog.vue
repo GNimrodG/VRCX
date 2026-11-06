@@ -87,7 +87,12 @@
         probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none';
         document.body.appendChild(probe);
         try {
+            const rootStyle = getComputedStyle(document.documentElement);
             const read = (name, prop) => {
+                // An undefined variable would otherwise resolve to the initial value (black) and be sent as if real.
+                if (!rootStyle.getPropertyValue(name).trim()) {
+                    return '';
+                }
                 probe.style.color = '';
                 probe.style[prop] = `var(${name})`;
                 return getComputedStyle(probe)[prop];
@@ -96,7 +101,9 @@
                 fg: read('--foreground', 'color'),
                 muted: read('--muted-foreground', 'color'),
                 line: read('--border', 'color'),
-                accent: read('--primary', 'color')
+                accent: read('--primary', 'color'),
+                accentfg: read('--primary-foreground', 'color'),
+                surface: read('--popover', 'backgroundColor')
             };
             return Object.entries(palette)
                 .filter(([, value]) => value)

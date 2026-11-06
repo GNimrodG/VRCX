@@ -44,7 +44,7 @@ if (framed) document.documentElement.classList.add('embedded');
 // The host's own palette (named themes like Midnight differ from plain dark),
 // as computed colours; anything that doesn't look like one is ignored.
 if (framed) {
-    for (const [param, variable] of [['fg', '--fg'], ['muted', '--muted'], ['line', '--line'], ['accent', '--accent']]) {
+    for (const [param, variable] of [['fg', '--fg'], ['muted', '--muted'], ['line', '--line'], ['accent', '--accent'], ['accentfg', '--accent-fg'], ['surface', '--surface']]) {
         const value = params.get(param);
         if (value && /^(rgba?|hsla?|oklch|oklab|color)\([^()<>;{}"'\\]{1,80}\)$/i.test(value)) {
             document.documentElement.style.setProperty(variable, value);
@@ -243,10 +243,10 @@ load();
 `;
 
 const STYLE = `
-:root { color-scheme: light dark; --bg:#fff; --fg:#1b1f23; --muted:#5b6670; --line:#d6dbe0; --card:#f6f8fa; --accent:#2457d6; --danger:#b3261e; --ok:#1a7f37; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme]) { --bg:#0f1317; --fg:#e6e9ec; --muted:#9aa5b1; --line:#2b333b; --card:#171c21; --accent:#7aa2ff; --danger:#ff8a80; --ok:#56d364; } }
-:root[data-theme="dark"] { color-scheme: dark; --bg:#0f1317; --fg:#e6e9ec; --muted:#9aa5b1; --line:#2b333b; --card:#171c21; --accent:#7aa2ff; --danger:#ff8a80; --ok:#56d364; }
-:root[data-theme="light"] { color-scheme: light; --bg:#fff; --fg:#1b1f23; --muted:#5b6670; --line:#d6dbe0; --card:#f6f8fa; --accent:#2457d6; --danger:#b3261e; --ok:#1a7f37; }
+:root { color-scheme: light dark; --bg:#fff; --fg:#1b1f23; --muted:#5b6670; --line:#d6dbe0; --card:#f6f8fa; --surface:#fff; --accent:#2457d6; --accent-fg:#fff; --danger:#b3261e; --ok:#1a7f37; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme]) { --bg:#0f1317; --fg:#e6e9ec; --muted:#9aa5b1; --line:#2b333b; --card:#171c21; --surface:#171c21; --accent:#7aa2ff; --accent-fg:#0f1317; --danger:#ff8a80; --ok:#56d364; } }
+:root[data-theme="dark"] { color-scheme: dark; --bg:#0f1317; --fg:#e6e9ec; --muted:#9aa5b1; --line:#2b333b; --card:#171c21; --surface:#171c21; --accent:#7aa2ff; --accent-fg:#0f1317; --danger:#ff8a80; --ok:#56d364; }
+:root[data-theme="light"] { color-scheme: light; --bg:#fff; --fg:#1b1f23; --muted:#5b6670; --line:#d6dbe0; --card:#f6f8fa; --surface:#fff; --accent:#2457d6; --accent-fg:#fff; --danger:#b3261e; --ok:#1a7f37; }
 * { box-sizing: border-box; }
 body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.55 system-ui,sans-serif; }
 main { max-width: 720px; margin: 0 auto; padding: 32px 24px 64px; }
@@ -268,7 +268,10 @@ input[type=text], select { width: 100%; height: 40px; padding: 0 12px; border: 1
 .actions .field { flex: 1 1 200px; margin: 0; }
 code { font: 12px ui-monospace, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
 button { font: inherit; height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
+/* --bg is transparent when embedded, which a native dropdown popup can't be (it falls back to white,
+   with the light --fg text on it), so the options get their own opaque surface. */
+select option { background: var(--surface); color: var(--fg); }
 button.danger { color: var(--danger); border-color: var(--danger); }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .message { padding: 12px 14px; border-radius: 8px; border: 1px solid var(--ok); margin: 0 0 16px; }

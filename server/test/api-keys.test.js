@@ -257,6 +257,12 @@ describe('API keys', () => {
         expect(response.status).toBe(200);
         const html = await response.text();
         const script = /<script>([\s\S]*)<\/script>/.exec(html)[1];
+        // legible on every theme: opaque dropdown options and a themeable accent text colour,
+        // fed by the host's palette (a transparent embedded --bg made options white-on-white)
+        expect(html).toMatch(/select option \{[^}]*background: var\(--surface\)/);
+        expect(html).toMatch(/button\.primary \{[^}]*color: var\(--accent-fg\)/);
+        expect(script).toContain("['surface', '--surface']");
+        expect(script).toContain("['accentfg', '--accent-fg']");
         const hash = (await import('node:crypto')).createHash('sha256').update(script).digest('base64');
         const csp = response.headers.get('content-security-policy');
         expect(csp).toContain(`script-src 'sha256-${hash}'`);
