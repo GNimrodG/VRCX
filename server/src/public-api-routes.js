@@ -5,6 +5,7 @@
  * `docs/openapi.json`, kept honest by `test/openapi.test.js`). Add a route by
  * adding an entry here; nothing else describes the API.
  */
+import { getDiscordId } from './discord-ids.js';
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -172,7 +173,7 @@ export const schemas = {
     },
     CurrentUser: {
         type: 'object',
-        required: ['id', 'displayName', 'profilePictureUrl', 'avatarThumbnailUrl'],
+        required: ['id', 'displayName', 'profilePictureUrl', 'avatarThumbnailUrl', 'discordId'],
         properties: {
             id: { type: 'string', example: 'usr_00000000-0000-0000-0000-000000000000' },
             displayName: { type: 'string' },
@@ -180,7 +181,8 @@ export const schemas = {
                 type: 'string',
                 description: 'Profile picture override, else current avatar image, else user icon. Empty if none.'
             },
-            avatarThumbnailUrl: { type: 'string' }
+            avatarThumbnailUrl: { type: 'string' },
+            discordId: { type: ['string', 'null'], description: 'Discord user id, if VRChat has ever shown one for this user (persisted; null otherwise)' }
         }
     },
     TogetherInterval: {
@@ -204,7 +206,7 @@ export const schemas = {
     },
     Friend: {
         type: 'object',
-        required: ['id', 'displayName', 'state', 'status', 'profilePictureUrl', 'avatarThumbnailUrl'],
+        required: ['id', 'displayName', 'state', 'status', 'profilePictureUrl', 'avatarThumbnailUrl', 'discordId'],
         properties: {
             id: { type: 'string' },
             displayName: { type: 'string' },
@@ -214,17 +216,21 @@ export const schemas = {
                 description: "The friend's status (`join me`, `active`, `ask me`, `busy`, …). Empty if not cached."
             },
             profilePictureUrl: { type: 'string', description: 'Empty if the user is not cached' },
-            avatarThumbnailUrl: { type: 'string', description: 'Empty if the user is not cached' }
+            avatarThumbnailUrl: { type: 'string', description: 'Empty if the user is not cached' },
+            note: { type: ['string', 'null'], description: 'Your private VRChat note on this user (null if none). Present only for keys with the notes:read scope.' },
+            discordId: { type: ['string', 'null'], description: 'Discord user id, if VRChat has ever shown one for this user (persisted; null otherwise)' }
         }
     },
     CachedUser: {
         type: 'object',
-        required: ['id', 'displayName', 'profilePictureUrl', 'avatarThumbnailUrl'],
+        required: ['id', 'displayName', 'profilePictureUrl', 'avatarThumbnailUrl', 'discordId'],
         properties: {
             id: { type: 'string' },
             displayName: { type: 'string' },
             profilePictureUrl: { type: 'string' },
-            avatarThumbnailUrl: { type: 'string' }
+            avatarThumbnailUrl: { type: 'string' },
+            note: { type: ['string', 'null'], description: 'Your private VRChat note on this user (null if none). Present only for keys with the notes:read scope.' },
+            discordId: { type: ['string', 'null'], description: 'Discord user id, if VRChat has ever shown one for this user (persisted; null otherwise)' }
         }
     }
 };
@@ -256,6 +262,7 @@ const okEnvelope = (key, schema) => ({
  * @property {import('./db.js').DatabaseHandle} handle
  * @property {() => any} getCurrentUser
  * @property {(id: string) => any} getCachedUser
+ * @property {(id: string) => { note?: string | null }} noteFor `{ note }` (null when none) if the key has `notes:read`, else `{}`
  * @property {() => any[]} getFriends The friend store's contexts (`{ id, state, ref, name }`)
  * @property {URL} url
  * @property {Record<string, string>} params
@@ -286,7 +293,8 @@ function publicFriend(friend) {
         state: friend.state || 'offline',
         status: user?.status || '',
         profilePictureUrl: user ? profilePictureUrl(user) : '',
-        avatarThumbnailUrl: user ? avatarThumbnailUrl(user) : ''
+        avatarThumbnailUrl: user ? avatarThumbnailUrl(user) : '',
+        discordId: getDiscordId(friend.id) ?? user?.discordId ?? null
     };
 }
 const USER_ID_PATTERN = '^usr_[0-9a-f-]+$';
@@ -310,16 +318,18 @@ function publicUser(user) {
         id: user.id,
         displayName: user.displayName,
         profilePictureUrl: profilePictureUrl(user),
-        avatarThumbnailUrl: avatarThumbnailUrl(user)
+        avatarThumbnailUrl: avatarThumbnailUrl(user),
+        discordId: getDiscordId(user.id) ?? user.discordId ?? null
     };
 }
 
 /**
  * @param {string[]} rawIds
  * @param {(id: string) => any} getCachedUser
+ * @param {(id: string) => { note?: string | null }} noteFor
  * @returns {{ status: number; body: any }}
  */
-function lookupUsers(rawIds, getCachedUser) {
+function lookupUsers(rawIds, getCachedUser, noteFor) {
     const ids = [...new Set(rawIds)];
     if (ids.length === 0 || ids.length > MAX_IDS) {
         return { status: 400, body: { ok: false, error: `ids must list 1-${MAX_IDS} user ids` } };
@@ -329,7 +339,7 @@ function lookupUsers(rawIds, getCachedUser) {
     for (const id of ids) {
         const user = getCachedUser(id);
         if (user) {
-            users[id] = publicUser(user);
+            users[id] = { ...publicUser(user), ...noteFor(id) };
         } else {
             missing.push(id);
         }
@@ -439,7 +449,8 @@ export const routes = [
                         id: user.id,
                         displayName: user.displayName,
                         profilePictureUrl: profilePictureUrl(user),
-                        avatarThumbnailUrl: avatarThumbnailUrl(user)
+                        avatarThumbnailUrl: avatarThumbnailUrl(user),
+                        discordId: getDiscordId(user.id) ?? user.discordId ?? null
                     }
                 }
             };
@@ -642,8 +653,8 @@ export const routes = [
             }
         ],
         responses: usersResponses,
-        handler({ getCachedUser, url }) {
-            return lookupUsers((url.searchParams.get('ids') ?? '').split(',').filter(Boolean), getCachedUser);
+        handler({ getCachedUser, noteFor, url }) {
+            return lookupUsers((url.searchParams.get('ids') ?? '').split(',').filter(Boolean), getCachedUser, noteFor);
         }
     },
     {
@@ -673,7 +684,7 @@ export const routes = [
             }
         },
         responses: usersResponses,
-        handler({ getCachedUser, body }) {
+        handler({ getCachedUser, noteFor, body }) {
             const ids = parseUserIdList(body?.ids);
             if (!ids) {
                 return {
@@ -681,7 +692,7 @@ export const routes = [
                     body: { ok: false, error: `body must be { "ids": [1-${MAX_IDS} distinct "usr_…" ids] }` }
                 };
             }
-            return lookupUsers(ids, getCachedUser);
+            return lookupUsers(ids, getCachedUser, noteFor);
         }
     },
     {
@@ -729,7 +740,7 @@ export const routes = [
             400: { description: 'Unknown state', content: { 'application/json': { schema: ref('Error') } } },
             ...errorResponses(401, 403, 503)
         },
-        handler({ getCurrentUser, getFriends, url }) {
+        handler({ getCurrentUser, getFriends, noteFor, url }) {
             if (!getCurrentUser()?.id) {
                 return {
                     status: 503,
@@ -745,7 +756,7 @@ export const routes = [
                 };
             }
             const friends = getFriends()
-                .map(publicFriend)
+                .map((friend) => ({ ...publicFriend(friend), ...noteFor(friend.id) }))
                 .filter((friend) => !states || states.includes(friend.state))
                 .sort(
                     (x, y) =>
@@ -780,12 +791,12 @@ export const routes = [
             },
             ...errorResponses(401, 403, 404)
         },
-        handler({ getCachedUser, params }) {
+        handler({ getCachedUser, noteFor, params }) {
             const user = getCachedUser(params.userId);
             if (!user) {
                 return { status: 404, body: { ok: false, error: 'User is not in the cache' } };
             }
-            return { status: 200, body: { ok: true, user: publicUser(user) } };
+            return { status: 200, body: { ok: true, user: { ...publicUser(user), ...noteFor(params.userId) } } };
         }
     }
 ];

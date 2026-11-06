@@ -51,7 +51,7 @@ function readJsonBody(req) {
  * @param {import('node:http').IncomingMessage} req
  * @param {URL} url
  * @param {{ apiEnabled?: boolean; getCurrentUser?: () => any; getCachedUser?: (id: string) => any;
- *     getFriends?: () => any[] }} options
+ *     getFriends?: () => any[]; getNote?: (id: string) => string | undefined }} options
  * @returns {Promise<{ status: number; body: any } | null>} `null` when the
  *   path isn't a `/api/v1/*` route at all, so the caller falls through
  */
@@ -109,6 +109,7 @@ export async function handlePublicApi(handle, req, url, options) {
         getCurrentUser: () => options.getCurrentUser?.(),
         getCachedUser: (id) => options.getCachedUser?.(id) ?? null,
         getFriends: () => options.getFriends?.() ?? [],
+        noteFor: (id) => (key.scopes.includes('notes:read') ? { note: options.getNote?.(id) || null } : {}),
         url,
         params: matched.params
     });

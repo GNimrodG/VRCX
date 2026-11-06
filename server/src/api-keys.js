@@ -37,6 +37,8 @@ export const SCOPES = Object.freeze({
     'playtime:read':
         'When you were in the same instance as other players, with start/end and player count (from the game log)',
     'users:read': 'Cached name and picture for users, looked up by id',
+    'notes:read':
+        'Your private notes on users, added as `note` to user and friend entries (also needs users:read or friends:read)',
     'friends:read': 'Your friend list: name, picture, status and online state (from the server cache)'
 });
 

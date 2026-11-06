@@ -17,6 +17,7 @@
  * `src/services/request.js` does `typeof error === 'string' ? error :
  * JSON.stringify(error)`, and an Error stringifies to `{}`.
  */
+import { recordFromResponseBody } from '../discord-ids.js';
 import { log } from '../log.js';
 
 /** Matches Dotnet/WebApi.cs:86. */
@@ -278,7 +279,11 @@ export class WebApiShim {
             };
         }
 
-        return { Item1: response.status, Item2: await response.text() };
+        const text = await response.text();
+        // Side channel: remember any Discord id VRChat shows us (server-owned
+        // `discord_ids` table). Fire-and-forget; never affects the response.
+        recordFromResponseBody(text);
+        return { Item1: response.status, Item2: text };
     }
 }
 

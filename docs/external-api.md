@@ -66,6 +66,7 @@ the spec is generated from it, so they cannot describe different things.
 | `playtime:read` | `GET /api/v1/time-together`, `POST /api/v1/time-together`, `GET /api/v1/time-together/{userId}` |
 | `users:read` | `GET /api/v1/users?ids=`, `POST /api/v1/users`, `GET /api/v1/users/{userId}` |
 | `friends:read` | `GET /api/v1/friends` |
+| `notes:read` | Adds `note` to user and friend entries; unlocks no route on its own |
 
 New endpoint = add its scope to `SCOPES` in `server/src/api-keys.js` if it needs a new one, add a route entry in `public-api-routes.js`, then `pnpm run openapi`.
 
@@ -145,6 +146,22 @@ Your friend list from the server's in-memory friend store; VRChat is never queri
 - **Deliberately limited:** no location or instance, no status text, no favourites or notes. A friend whose
   profile isn't in the user cache still appears (name from the friend store, empty picture fields).
 - `503` while the server isn't logged in to VRChat.
+
+### Discord ids
+
+`/me`, `/users` and `/friends` entries carry `discordId`: the user's Discord user id, or `null`. VRChat only
+returns it for users who linked Discord and allow it to be shown, so many users stay `null`. The server records
+every id it sees in any VRChat response (`server/src/discord-ids.js`) into a server-owned `discord_ids` table
+(`user_id`, `discord_id`, `first_seen`, `last_seen`; global, additive, ignored by the desktop app), so the id
+survives restarts and is returned even for users no longer in the cache. A user who later unlinks Discord keeps
+their last known id. Nothing extra is fetched from VRChat.
+
+### Notes
+
+A key with `notes:read` (plus `users:read` and/or `friends:read`) gets `note` on user and friend entries: your
+private VRChat note on that user, or `null` if there is none. Without the scope the field is absent, so existing
+keys don't start exposing notes. Notes come from the server's in-memory note map (synced from VRChat and the
+`<user>_notes` table); VRChat is never queried. Notes are private text, so grant the scope sparingly.
 
 ### Which picture you get
 

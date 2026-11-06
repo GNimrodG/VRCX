@@ -7,6 +7,7 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { loadDiscordIds } from './discord-ids.js';
 import { installFeedDedup } from './feed-dedup.js';
 import { installSeenAvatars } from './seen-avatars.js';
 import { repoRoot } from './globals.js';
@@ -91,6 +92,9 @@ export async function openDatabase(options = {}) {
     installFeedDedup(database, dbVars);
     // After the dedup wrapper, so a collapsed duplicate event still upserts once.
     installSeenAvatars(database, dbVars);
+    if (options.readOnly !== true) {
+        await loadDiscordIds();
+    }
 
     return {
         databasePath,

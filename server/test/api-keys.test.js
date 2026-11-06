@@ -79,6 +79,7 @@ describe('API keys', () => {
         ({ server } = await createHttpServer(handle, {
             apiEnabled: true,
             getCurrentUser: () => user,
+            getNote: (id) => (id === 'usr_f1' ? 'met at a meetup' : undefined),
             getFriends: () => [
                 { id: 'usr_f3', state: 'offline', name: 'zed', ref: undefined },
                 {
@@ -224,6 +225,7 @@ describe('API keys', () => {
         expect(one.body.user).toMatchObject({ displayName: 'Alice', profilePictureUrl: 'https://img/a.png' });
         expect(Object.keys(one.body.user).sort()).toEqual([
             'avatarThumbnailUrl',
+            'discordId',
             'displayName',
             'id',
             'profilePictureUrl'
@@ -270,6 +272,21 @@ describe('API keys', () => {
         expect((await call('/api/v1/users', { key: body.key, method: 'DELETE' })).status).toBe(405);
     });
 
+    it('adds notes only for keys with notes:read', async () => {
+        const plain = await mint(['friends:read']);
+        const plainList = await call('/api/v1/friends', { key: plain.body.key });
+        expect(plainList.body.results.every((f) => !('note' in f))).toBe(true);
+
+        const withNotes = await mint(['friends:read', 'notes:read']);
+        const list = await call('/api/v1/friends', { key: withNotes.body.key });
+        expect(list.body.results.find((f) => f.id === 'usr_f1').note).toBe('met at a meetup');
+        expect(list.body.results.find((f) => f.id === 'usr_f3').note).toBeNull();
+
+        // notes:read alone unlocks no route
+        const only = await mint(['notes:read']);
+        expect((await call('/api/v1/friends', { key: only.body.key })).status).toBe(403);
+    });
+
     it('lists friends with friends:read, sharing only the allowlisted fields', async () => {
         const { body } = await mint(['friends:read']);
         const list = await call('/api/v1/friends', { key: body.key });
@@ -284,7 +301,8 @@ describe('API keys', () => {
             state: 'online',
             status: 'join me',
             profilePictureUrl: 'https://img/c.png',
-            avatarThumbnailUrl: 'https://img/ct.png'
+            avatarThumbnailUrl: 'https://img/ct.png',
+            discordId: null
         });
         expect(JSON.stringify(list.body)).not.toMatch(/private text|wrld_secret/);
         expect(list.body.results[2]).toMatchObject({ id: 'usr_f3', state: 'offline', profilePictureUrl: '' });

@@ -583,7 +583,8 @@ async function main() {
             apiEnabled: isApiEnabled(),
             getCurrentUser: () => stores.user.currentUser,
             getCachedUser: (id) => stores.user.cachedUsers.get(id),
-                getFriends: () => [...stores.friend.friends.values()]
+                getFriends: () => [...stores.friend.friends.values()],
+                getNote: (id) => stores.user.notes.get(id)
         });
         const host = process.env.VRCX_SERVER_HOST || '0.0.0.0';
         const port = Number(process.env.VRCX_SERVER_PORT) || 9000;
@@ -607,7 +608,8 @@ async function main() {
                 tls,
                 getCurrentUser: () => stores.user.currentUser,
                 getCachedUser: (id) => stores.user.cachedUsers.get(id),
-                getFriends: () => [...stores.friend.friends.values()]
+                getFriends: () => [...stores.friend.friends.values()],
+                getNote: (id) => stores.user.notes.get(id)
             });
             await new Promise((resolve, reject) => {
                 publicServer.once('error', reject);
