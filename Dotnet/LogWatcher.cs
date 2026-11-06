@@ -264,7 +264,8 @@ namespace VRCX
                     }
                     else
                     {
-                        if (ParseLogNowPlaying(fileInfo, logContext, line, offset) ||
+                        if (ParseLogNotification(fileInfo, logContext, line, offset) ||
+                            ParseLogNowPlaying(fileInfo, logContext, line, offset) ||
                             ParseLogShaderKeywordsLimit(fileInfo, logContext, line, offset) ||
                             ParseLogSDK2VideoPlay(fileInfo, logContext, line, offset) ||
                             ParseApplicationQuit(fileInfo, logContext, line, offset) ||
@@ -879,15 +880,11 @@ namespace VRCX
         private bool ParseLogNotification(FileInfo fileInfo, LogContext logContext, string line, int offset)
         {
             // 2021.01.03 05:48:58 Log        -  [API] Received Notification: < Notification from username:pypy, sender user id:usr_4f76a584-9d4b-46f6-8209-8305eb683661 to of type: friendRequest, id: not_3a8f66eb-613c-4351-bee3-9980e6b5652c, created at: 01/14/2021 15:38:40 UTC, details: {{}}, type:friendRequest, m seen:False, message: ""> received at 01/02/2021 16:48:58 UTC
+            // 2026.11.05 23:48:49 Debug      -  Received Notification: <Notification from username:JustZen, sender user id:usr_..., to usr_... of type: requestInvite, id: not_..., created at: 11/05/2026 22:48:49 UTC, details: {{}}, type:requestInvite, m seen:False, message: "">
+            // (current VRChat: no "[API] " prefix and no "> received at" suffix; both forms are accepted)
 
-            if (string.Compare(line, offset, "[API] Received Notification: <", 0, 30, StringComparison.Ordinal) != 0)
+            if (!TryGetNotificationData(line, offset, out var data))
                 return false;
-
-            var pos = line.LastIndexOf("> received at ", StringComparison.Ordinal);
-            if (pos < 0)
-                return false;
-
-            var data = line.Substring(offset + 30, pos - (offset + 30));
 
             AppendLog(new[]
             {
@@ -898,6 +895,80 @@ namespace VRCX
             });
 
             return true;
+        }
+
+        private static bool TryGetNotificationData(string line, int offset, out string data)
+        {
+            data = string.Empty;
+            if (offset >= line.Length)
+                return false;
+
+            var prefixLength = line.AsSpan(offset).StartsWith("[API] Received Notification: <", StringComparison.Ordinal)
+                ? 30
+                : line.AsSpan(offset).StartsWith("Received Notification: <", StringComparison.Ordinal)
+                    ? 24
+                    : 0;
+            if (prefixLength == 0)
+                return false;
+
+            var pos = line.LastIndexOf("> received at ", StringComparison.Ordinal);
+            if (pos < 0)
+                pos = line.LastIndexOf('>');
+            if (pos < offset + prefixLength)
+                return false;
+
+            data = line.Substring(offset + prefixLength, pos - (offset + prefixLength));
+            return true;
+        }
+
+        /// <summary>
+        /// Every notification the game logged since <paramref name="sinceIso"/>, read straight from all
+        /// output_log files. Independent of <c>tillDate</c> and the incremental read positions, so a
+        /// notification older than the last game-log database entry (which the normal watcher skips)
+        /// is still found. Read-only and stateless: callers dedupe by notification id.
+        /// </summary>
+        public string[][] GetNotificationLog(string sinceIso)
+        {
+            var results = new List<string[]>();
+            if (!DateTime.TryParse(sinceIso, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var since))
+                since = DateTime.UtcNow.AddDays(-7);
+
+            try
+            {
+                m_LogDirectoryInfo.Refresh();
+                if (!((m_LogDirectoryInfo.LinkTarget == null && m_LogDirectoryInfo.Exists) || Directory.Exists(m_LogDirectoryInfo.LinkTarget)))
+                    return results.ToArray();
+
+                var fileInfos = m_LogDirectoryInfo.GetFiles("output_log_*.txt", SearchOption.TopDirectoryOnly);
+                Array.Sort(fileInfos, (a, b) => a.CreationTimeUtc.CompareTo(b.CreationTimeUtc));
+                foreach (var fileInfo in fileInfos)
+                {
+                    if (fileInfo.LastWriteTimeUtc < since)
+                        continue;
+
+                    using var stream = new FileStream(fileInfo.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536, FileOptions.SequentialScan);
+                    using var reader = new StreamReader(stream, Encoding.UTF8);
+                    string? line;
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        // "yyyy.MM.dd HH:mm:ss <Level> - " is 34 characters, same offset as ParseLog
+                        if (line.Length <= 36 || line[31] != '-' || !TryGetNotificationData(line, 34, out var data))
+                            continue;
+
+                        if (!DateTime.TryParseExact(line.Substring(0, 19), "yyyy.MM.dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out var lineDate) ||
+                            lineDate.ToUniversalTime() < since)
+                            continue;
+
+                        results.Add(new[] { fileInfo.Name, ConvertLogTimeToISO8601(line), "notification", data });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "Failed to scan log files for notifications: {0}", ex.Message);
+            }
+
+            return results.ToArray();
         }
 
         private bool ParseLogAPIRequest(FileInfo fileInfo, LogContext logContext, string line, int offset)

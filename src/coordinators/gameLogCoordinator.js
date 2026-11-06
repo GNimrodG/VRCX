@@ -378,6 +378,7 @@ export async function addGameLogEntry(gameLog, location) {
             }
             break;
         case 'notification':
+            notificationStore.handleGameLogNotification(gameLog);
             break;
         case 'event':
             entry = {

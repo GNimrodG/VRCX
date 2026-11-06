@@ -35,6 +35,7 @@ import {
 } from '../../shared/utils/notificationMessage';
 import { database, dbVars } from '../../services/database';
 import { getNotificationCategory, getNotificationTs } from '../../shared/utils/notificationCategory';
+import { parseLogNotification } from '../../shared/utils/gameLogNotification';
 import { AppDebug } from '../../services/appConfig';
 import { createOverlayDispatch } from './overlayDispatch';
 import { useAdvancedSettingsStore } from '../settings/advanced';
@@ -61,6 +62,13 @@ import configRepository from '../../services/config';
 // Invite requests and replies, shown as persistent system notifications while
 // the game is closed (NotificationsSettings.persistentInviteToast).
 const persistentToastTypes = new Set(['requestInvite', 'inviteResponse', 'requestInviteResponse']);
+
+// Fork-only (CLAUDE.md §5): the game log as a second source for notifications.
+// Only the invite family is recovered from it; other types just get their delivery timing recorded.
+const GAME_LOG_RECOVERABLE_TYPES = new Set(['invite', 'requestInvite', 'inviteResponse', 'requestInviteResponse']);
+// A log line this fresh is a live miss worth a toast; older ones are recovered quietly.
+const GAME_LOG_LIVE_WINDOW_MS = 2 * 60 * 1000;
+const GAME_LOG_BACKFILL_DAYS = 14;
 
 export const useNotificationStore = defineStore('Notification', () => {
     const { t } = useI18n();
@@ -200,6 +208,17 @@ export const useNotificationStore = defineStore('Notification', () => {
     function handleNotification(args) {
         args.ref = applyNotification(args.json);
         const { ref } = args;
+        if (!args.fromGameLog) {
+            database
+                .recordNotificationDelivery({
+                    id: ref.id,
+                    type: ref.type,
+                    senderUsername: ref.senderUsername,
+                    createdAt: ref.created_at,
+                    source: 'pipeline'
+                })
+                .catch(() => {});
+        }
         const array = notificationTable.value.data;
         const { length } = array;
         if (ref.seen) {
@@ -248,6 +267,78 @@ export const useNotificationStore = defineStore('Notification', () => {
             return;
         }
         D.incomingRequest = true;
+    }
+
+    /**
+     * A `notification` game-log entry: the game received this notification. Records when, and — for the invite
+     * family — recovers it if the pipeline never delivered it (server logged out, pipeline down, …). Idempotent:
+     * keyed on the notification id, so replaying the same log any number of times changes nothing.
+     *
+     * @param {{ dt: string; json: string }} gameLog
+     */
+    async function handleGameLogNotification(gameLog) {
+        if (!watchState.isLoggedIn) {
+            return; // the post-login backfill picks these up
+        }
+        const json = parseLogNotification(gameLog.json);
+        if (!json) {
+            return;
+        }
+        const alreadyKnown = () => notificationTable.value.data.some((n) => n.id === json.id);
+        try {
+            database
+                .recordNotificationDelivery({
+                    id: json.id,
+                    type: json.type,
+                    senderUsername: json.senderUsername,
+                    createdAt: json.created_at,
+                    source: 'log',
+                    at: gameLog.dt
+                })
+                .catch(() => {});
+            if (
+                !GAME_LOG_RECOVERABLE_TYPES.has(json.type) ||
+                json.senderUserId === userStore.currentUser.id ||
+                alreadyKnown() ||
+                (await database.hasNotification(json.id)) ||
+                alreadyKnown() // the pipeline may have delivered it while we awaited the database
+            ) {
+                return;
+            }
+            console.warn('Recovered a notification the pipeline never delivered, from the game log:', json);
+            if (Date.now() - Date.parse(gameLog.dt) < GAME_LOG_LIVE_WINDOW_MS) {
+                handleNotification({ json, fromGameLog: true });
+                return;
+            }
+            const ref = applyNotification(json);
+            unseenNotifications.value.push(ref.id);
+            database.addNotificationToDatabase(ref);
+            notificationTable.value.data.push(ref);
+            uiStore.notifyMenu('notification', ref.type);
+        } catch (err) {
+            console.error('Failed to process a game log notification:', err);
+        }
+    }
+
+    /**
+     * Replays the notifications in the local game logs (the last {@link GAME_LOG_BACKFILL_DAYS} days) after login.
+     * Needed on top of the live path because the log watcher skips anything older than the last game-log database
+     * entry, which a notification received while the pipeline was down usually is. Desktop clients only: the
+     * browser has no game log.
+     */
+    async function backfillNotificationsFromGameLog() {
+        if (!(LINUX || WINDOWS)) {
+            return;
+        }
+        try {
+            const since = new Date(Date.now() - GAME_LOG_BACKFILL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+            const lines = await LogWatcher.GetNotificationLog(since);
+            for (const [, dt, , data] of lines) {
+                await handleGameLogNotification({ dt, json: data });
+            }
+        } catch (err) {
+            console.error('Failed to backfill notifications from the game log:', err);
+        }
     }
 
     /**
@@ -1110,6 +1201,7 @@ export const useNotificationStore = defineStore('Notification', () => {
         tableData.splice(dbVars.maxTableSize);
         notificationTable.value.data = tableData;
         refreshNotifications();
+        backfillNotificationsFromGameLog();
     }
 
     async function checkInventoryBundles() {
@@ -1513,6 +1605,7 @@ export const useNotificationStore = defineStore('Notification', () => {
         recentOtherNotifications,
         hasUnseenNotifications,
         getNotificationCategory,
+        handleGameLogNotification,
         isNotificationExpired,
         openNotificationLink,
         queueMarkAsSeen,

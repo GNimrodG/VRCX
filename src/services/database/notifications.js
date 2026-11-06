@@ -216,6 +216,108 @@ const notifications = {
         sqliteService.executeNonQuery(`DELETE FROM ${dbVars.userPrefix}_notifications_v2 WHERE id = @id`, {
             '@id': id
         });
+    },
+
+    // --- Fork-only (CLAUDE.md §5): game-log notification fallback + delivery timing ---
+
+    /**
+     * @param {string} id
+     * @returns {Promise<boolean>} Whether a v1 notification with this id is already stored
+     */
+    async hasNotification(id) {
+        let found = false;
+        await sqliteService.execute(
+            () => {
+                found = true;
+            },
+            `SELECT 1 FROM ${dbVars.userPrefix}_notifications WHERE id = @id LIMIT 1`,
+            { '@id': id }
+        );
+        return found;
+    },
+
+    /**
+     * Records when each of the two independent sources first saw a
+     * notification: the VRChat pipeline (stamped with this process's clock, so
+     * the server's when called over RPC) and the local game log (the log
+     * line's own timestamp). First write per source wins, so replaying the log
+     * or several clients reporting the same frame is harmless. Server-owned
+     * table, like `seen_avatars`: created on first use and ignored by the
+     * desktop app.
+     *
+     * @param {{
+     *     id: string;
+     *     type: string;
+     *     senderUsername: string;
+     *     createdAt: string;
+     *     source: 'pipeline' | 'log';
+     *     at?: string;
+     * }} entry
+     */
+    async recordNotificationDelivery({ id, type, senderUsername, createdAt, source, at }) {
+        await sqliteService.executeNonQuery(
+            `CREATE TABLE IF NOT EXISTS notification_delivery (id TEXT PRIMARY KEY, type TEXT, sender_username TEXT, created_at TEXT, pipeline_at TEXT, game_at TEXT)`
+        );
+        const when = at || new Date().toJSON();
+        await sqliteService.executeNonQuery(
+            `INSERT INTO notification_delivery (id, type, sender_username, created_at, pipeline_at, game_at)
+             VALUES (@id, @type, @sender_username, @created_at, @pipeline_at, @game_at)
+             ON CONFLICT (id) DO UPDATE SET
+                 pipeline_at = COALESCE(pipeline_at, excluded.pipeline_at),
+                 game_at = COALESCE(game_at, excluded.game_at)`,
+            {
+                '@id': id,
+                '@type': type,
+                '@sender_username': senderUsername,
+                '@created_at': createdAt,
+                '@pipeline_at': source === 'pipeline' ? when : null,
+                '@game_at': source === 'log' ? when : null
+            }
+        );
+    },
+
+    /**
+     * @param {number} [limit]
+     * @returns {Promise<
+     *     {
+     *         id: string;
+     *         type: string;
+     *         senderUsername: string;
+     *         createdAt: string;
+     *         pipelineAt: string | null;
+     *         gameAt: string | null;
+     *         delayMs: number | null;
+     *         status: 'both' | 'pipeline-only' | 'game-only';
+     *     }[]
+     * >}
+     *   Newest first. `delayMs` is how much later the pipeline
+     *   delivered it than the game logged it (negative: the pipeline was first); `game-only` rows are notifications
+     *   the pipeline never delivered.
+     */
+    async getNotificationDeliveries(limit = 100) {
+        const rows = [];
+        await sqliteService.executeNonQuery(
+            `CREATE TABLE IF NOT EXISTS notification_delivery (id TEXT PRIMARY KEY, type TEXT, sender_username TEXT, created_at TEXT, pipeline_at TEXT, game_at TEXT)`
+        );
+        await sqliteService.execute(
+            (dbRow) => {
+                const pipelineAt = dbRow[4];
+                const gameAt = dbRow[5];
+                rows.push({
+                    id: dbRow[0],
+                    type: dbRow[1],
+                    senderUsername: dbRow[2],
+                    createdAt: dbRow[3],
+                    pipelineAt,
+                    gameAt,
+                    delayMs: pipelineAt && gameAt ? Date.parse(pipelineAt) - Date.parse(gameAt) : null,
+                    status: pipelineAt && gameAt ? 'both' : pipelineAt ? 'pipeline-only' : 'game-only'
+                });
+            },
+            `SELECT id, type, sender_username, created_at, pipeline_at, game_at FROM notification_delivery ORDER BY created_at DESC LIMIT @limit`,
+            { '@limit': limit }
+        );
+        return rows;
     }
 };
 
