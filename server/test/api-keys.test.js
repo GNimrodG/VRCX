@@ -246,6 +246,17 @@ describe('API keys', () => {
         ).toBe(403);
     });
 
+    it('POST /users with a notes:read key returns notes (regression: 500 report)', async () => {
+        const { body } = await mint(['users:read', 'notes:read']);
+        const A = 'usr_00000000-0000-0000-0000-00000000000a';
+        const ids = [A, 'usr_f1', 'usr_00000000-0000-0000-0000-0000000000ff'];
+        const res = await call('/api/v1/users', { key: body.key, method: 'POST', body: { ids } });
+        expect(res.status).toBe(200);
+        expect(res.body.users[A]).toHaveProperty('note', null);
+        const get = await call(`/api/v1/users?ids=${ids.join(',')}`, { key: body.key });
+        expect(get.status).toBe(200);
+    });
+
     it('looks up several cached users from a POST body, like the GET list', async () => {
         const { body } = await mint(['users:read']);
         const A = 'usr_00000000-0000-0000-0000-00000000000a';

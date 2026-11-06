@@ -14,6 +14,7 @@ import http from 'node:http';
 import https from 'node:https';
 
 import { authenticateApiKey, readApiKey, SCOPES } from './api-keys.js';
+import { log } from './log.js';
 import { allowedMethods, buildOpenApiSpec, matchRoute } from './public-api-routes.js';
 
 const MAX_BODY_BYTES = 64 * 1024; // a 50-id batch is ~2 KiB; this is already generous
@@ -138,7 +139,8 @@ export function createPublicApiServer(handle, options = {}) {
                 status: 404,
                 body: { ok: false, error: 'Not found' }
             };
-        } catch {
+        } catch (err) {
+            log.error('Public API request failed', { path: req.url?.split('?')[0], message: err.message, stack: err.stack });
             result = {
                 status: 500,
                 body: { ok: false, error: 'Internal error' }
