@@ -789,7 +789,8 @@
     "/api/v1/users/{userId}": {
       "get": {
         "operationId": "getUser",
-        "summary": "Cached details for one user",
+        "summary": "Details for one user",
+        "description": "Served from the in-memory cache, else the persistent local cache (fresh for 24 h), else fetched from VRChat and stored. Bulk routes never query VRChat. `404` if no source has the user.",
         "tags": [
           "users"
         ],

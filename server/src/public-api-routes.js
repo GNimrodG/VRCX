@@ -775,7 +775,9 @@ export const routes = [
         path: '/api/v1/users/{userId}',
         scope: 'users:read',
         operationId: 'getUser',
-        summary: 'Cached details for one user',
+        summary: 'Details for one user',
+        description:
+            "Served from the in-memory cache, else the persistent local cache (fresh for 24 h), else fetched from VRChat and stored. Bulk routes never query VRChat. `404` if no source has the user.",
         parameters: [
             {
                 name: 'userId',
@@ -791,8 +793,8 @@ export const routes = [
             },
             ...errorResponses(401, 403, 404)
         },
-        handler({ getCachedUser, noteFor, params }) {
-            const user = getCachedUser(params.userId);
+        async handler({ resolveUser, noteFor, params }) {
+            const user = await resolveUser(params.userId);
             if (!user) {
                 return { status: 404, body: { ok: false, error: 'User is not in the cache' } };
             }

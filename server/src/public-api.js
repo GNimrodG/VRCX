@@ -15,6 +15,7 @@ import https from 'node:https';
 
 import { authenticateApiKey, readApiKey, SCOPES } from './api-keys.js';
 import { log } from './log.js';
+import { resolveUser } from './user-cache.js';
 import { allowedMethods, buildOpenApiSpec, matchRoute } from './public-api-routes.js';
 
 const MAX_BODY_BYTES = 64 * 1024; // a 50-id batch is ~2 KiB; this is already generous
@@ -51,7 +52,7 @@ function readJsonBody(req) {
  * @param {import('./db.js').DatabaseHandle} handle
  * @param {import('node:http').IncomingMessage} req
  * @param {URL} url
- * @param {{ apiEnabled?: boolean; getCurrentUser?: () => any; getCachedUser?: (id: string) => any;
+ * @param {{ apiEnabled?: boolean; getCurrentUser?: () => any; getCachedUser?: (id: string) => any; fetchUser?: (id: string) => Promise<any>;
  *     getFriends?: () => any[]; getNote?: (id: string) => string | undefined }} options
  * @returns {Promise<{ status: number; body: any } | null>} `null` when the
  *   path isn't a `/api/v1/*` route at all, so the caller falls through
@@ -109,6 +110,8 @@ export async function handlePublicApi(handle, req, url, options) {
         body,
         getCurrentUser: () => options.getCurrentUser?.(),
         getCachedUser: (id) => options.getCachedUser?.(id) ?? null,
+        resolveUser: (id) =>
+            resolveUser(id, { getCachedUser: (uid) => options.getCachedUser?.(uid) ?? null, fetchUser: options.fetchUser }),
         getFriends: () => options.getFriends?.() ?? [],
         noteFor: (id) => (key.scopes.includes('notes:read') ? { note: options.getNote?.(id) || null } : {}),
         url,

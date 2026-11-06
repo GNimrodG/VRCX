@@ -25,9 +25,11 @@ otherwise terminate TLS in a reverse proxy.
   declare it (batch lookups whose id list is too long for a URL), and never
   mutates anything. Keys never reach
   `/api/rpc`, the `/api/stream` or `/api/agent` WebSockets, or key management.
-- **Local cache only.** Routes read `VRCX.sqlite3` and the already-logged-in
-  user in memory. They never call VRChat, so a consumer can't burn the
-  account's rate limit.
+- **Local cache first.** Routes read `VRCX.sqlite3` and the already-logged-in
+  user in memory. The one exception is `GET /api/v1/users/{userId}`, which may
+  fetch a single unknown user from VRChat and cache it (see below); bulk routes
+  never call VRChat, and lookups are deduplicated and failures remembered, so a
+  consumer can't burn the account's rate limit.
 - **Hand-written allowlist.** Each route names one scope and shapes its own
   response; internal DB/config details never become a public contract.
 - **Key format** `vrcx_<id>_<secret>`: `id` is 8 hex characters (a public
@@ -118,10 +120,13 @@ game-log forwarding. Instance ids are deliberately not exposed.
 
 ### `GET /api/v1/users/{userId}`, `GET /api/v1/users?ids=a,b,c` and `POST /api/v1/users` (`users:read`)
 
-Cached `id`, `displayName`, `profilePictureUrl`, `avatarThumbnailUrl`, from the
+`id`, `displayName`, `profilePictureUrl`, `avatarThumbnailUrl`. The list form and `POST` read only the
 server's in-memory user cache; VRChat is never queried. The list form takes up
 to 50 ids and returns `{ users: { <id>: {…} }, missing: [ids not cached] }`; the
-single form returns `404` if the user isn't cached.
+single form resolves a user in this order: in-memory cache, then the persistent `public_user_cache` table (server-owned,
+like `discord_ids`; only the public fields are stored; rows under 24 h old are used as is), then a live VRChat
+`users/{id}` fetch which is stored in that table (needs a logged-in server; concurrent requests share one fetch and a
+failure is not retried for 5 minutes). A stale row is served if VRChat fails. `404` if none has the user.
 
 `POST /api/v1/users` is the same lookup with the ids in a JSON body, for lists
 that would overflow a URL: `{ "ids": ["usr_…", …] }` (1-50 `usr_` ids, duplicates

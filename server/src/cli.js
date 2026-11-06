@@ -36,6 +36,7 @@ import {
 import { generateTotpSecret, totpProvisioningUri, verifyTotpCode } from './totp.js';
 import { checkForUpdate } from './update-check.js';
 import { installWebApi } from './webapi-init.js';
+import { userRequest } from '../../src/api/index.js';
 
 import { AppDebug } from '../../src/services/appConfig.js';
 
@@ -583,6 +584,8 @@ async function main() {
             apiEnabled: isApiEnabled(),
             getCurrentUser: () => stores.user.currentUser,
             getCachedUser: (id) => stores.user.cachedUsers.get(id),
+            fetchUser: (id) =>
+                stores.user.currentUser?.id ? userRequest.getUser({ userId: id }).then((args) => args.ref) : Promise.resolve(null),
                 getFriends: () => [...stores.friend.friends.values()],
                 getNote: (id) => stores.user.state.notes.get(id)
         });
@@ -608,6 +611,8 @@ async function main() {
                 tls,
                 getCurrentUser: () => stores.user.currentUser,
                 getCachedUser: (id) => stores.user.cachedUsers.get(id),
+                fetchUser: (id) =>
+                    stores.user.currentUser?.id ? userRequest.getUser({ userId: id }).then((args) => args.ref) : Promise.resolve(null),
                 getFriends: () => [...stores.friend.friends.values()],
                 getNote: (id) => stores.user.state.notes.get(id)
             });
