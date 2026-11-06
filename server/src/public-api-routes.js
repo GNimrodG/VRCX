@@ -8,15 +8,43 @@
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
+const FRIEND_STATES = ['online', 'active', 'offline'];
 
 /**
- * Same preference order as `userImageFull` in `src/shared/utils/user.js`.
+ * The best full-size picture the cache has for a user. The first three keep the preference order of `userImageFull`
+ * in `src/shared/utils/user.js`; the rest are fallbacks, so a user the app shows a picture for (its `userImage()` also
+ * reads `iconUrl`/`thumbnailUrl` and the thumbnail) is not reported as having none just because VRChat filled a
+ * different field. A user the cache has no image for at all still gets ''.
  *
  * @param {any} user
  * @returns {string}
  */
-function profilePictureUrl(user) {
-    return user.profilePicOverride || user.currentAvatarImageUrl || user.userIcon || '';
+export function profilePictureUrl(user) {
+    return (
+        user.profilePicOverride ||
+        user.currentAvatarImageUrl ||
+        user.userIcon ||
+        user.imageUrl ||
+        user.iconUrl ||
+        user.thumbnailUrl ||
+        user.profilePicOverrideThumbnail ||
+        user.currentAvatarThumbnailImageUrl ||
+        ''
+    );
+}
+
+/**
+ * @param {any} user
+ * @returns {string}
+ */
+export function avatarThumbnailUrl(user) {
+    return (
+        user.currentAvatarThumbnailImageUrl ||
+        user.profilePicOverrideThumbnail ||
+        user.thumbnailUrl ||
+        user.imageUrl ||
+        ''
+    );
 }
 
 /**
@@ -174,6 +202,21 @@ export const schemas = {
             }
         }
     },
+    Friend: {
+        type: 'object',
+        required: ['id', 'displayName', 'state', 'status', 'profilePictureUrl', 'avatarThumbnailUrl'],
+        properties: {
+            id: { type: 'string' },
+            displayName: { type: 'string' },
+            state: { type: 'string', enum: FRIEND_STATES },
+            status: {
+                type: 'string',
+                description: "The friend's status (`join me`, `active`, `ask me`, `busy`, …). Empty if not cached."
+            },
+            profilePictureUrl: { type: 'string', description: 'Empty if the user is not cached' },
+            avatarThumbnailUrl: { type: 'string', description: 'Empty if the user is not cached' }
+        }
+    },
     CachedUser: {
         type: 'object',
         required: ['id', 'displayName', 'profilePictureUrl', 'avatarThumbnailUrl'],
@@ -213,6 +256,7 @@ const okEnvelope = (key, schema) => ({
  * @property {import('./db.js').DatabaseHandle} handle
  * @property {() => any} getCurrentUser
  * @property {(id: string) => any} getCachedUser
+ * @property {() => any[]} getFriends The friend store's contexts (`{ id, state, ref, name }`)
  * @property {URL} url
  * @property {Record<string, string>} params
  * @property {any} [body] Parsed JSON body (`POST` routes only)
@@ -232,6 +276,19 @@ const okEnvelope = (key, schema) => ({
  */
 
 const MAX_IDS = 50;
+
+/** @param {any} friend A friend store context */
+function publicFriend(friend) {
+    const user = friend.ref;
+    return {
+        id: friend.id,
+        displayName: user?.displayName || friend.name || '',
+        state: friend.state || 'offline',
+        status: user?.status || '',
+        profilePictureUrl: user ? profilePictureUrl(user) : '',
+        avatarThumbnailUrl: user ? avatarThumbnailUrl(user) : ''
+    };
+}
 const USER_ID_PATTERN = '^usr_[0-9a-f-]+$';
 const USER_ID_RE = new RegExp(USER_ID_PATTERN);
 
@@ -253,7 +310,7 @@ function publicUser(user) {
         id: user.id,
         displayName: user.displayName,
         profilePictureUrl: profilePictureUrl(user),
-        avatarThumbnailUrl: user.currentAvatarThumbnailImageUrl || ''
+        avatarThumbnailUrl: avatarThumbnailUrl(user)
     };
 }
 
@@ -382,7 +439,7 @@ export const routes = [
                         id: user.id,
                         displayName: user.displayName,
                         profilePictureUrl: profilePictureUrl(user),
-                        avatarThumbnailUrl: user.currentAvatarThumbnailImageUrl || ''
+                        avatarThumbnailUrl: avatarThumbnailUrl(user)
                     }
                 }
             };
@@ -625,6 +682,82 @@ export const routes = [
                 };
             }
             return lookupUsers(ids, getCachedUser);
+        }
+    },
+    {
+        path: '/api/v1/friends',
+        scope: 'friends:read',
+        operationId: 'listFriends',
+        summary: 'Your friend list',
+        description:
+            "The account's friends from the server's cache (VRChat is never queried): name, picture, status and online state, sorted by name. Locations, status text and everything else are deliberately not exposed. `503` while the server is not logged in to VRChat.",
+        parameters: [
+            {
+                name: 'state',
+                in: 'query',
+                description: 'Comma-separated states to include, e.g. `online,active`. Default: all.',
+                schema: { type: 'string', example: 'online,active' }
+            },
+            {
+                name: 'limit',
+                in: 'query',
+                schema: { type: 'integer', minimum: 1, maximum: MAX_LIMIT, default: DEFAULT_LIMIT }
+            },
+            {
+                name: 'offset',
+                in: 'query',
+                schema: { type: 'integer', minimum: 0, default: 0 }
+            }
+        ],
+        responses: {
+            200: {
+                description: 'Friends sorted by name',
+                content: {
+                    'application/json': {
+                        schema: {
+                            type: 'object',
+                            required: ['ok', 'total', 'results'],
+                            properties: {
+                                ok: { type: 'boolean', enum: [true] },
+                                total: { type: 'integer', description: 'Matching friends before pagination' },
+                                results: { type: 'array', items: ref('Friend') }
+                            }
+                        }
+                    }
+                }
+            },
+            400: { description: 'Unknown state', content: { 'application/json': { schema: ref('Error') } } },
+            ...errorResponses(401, 403, 503)
+        },
+        handler({ getCurrentUser, getFriends, url }) {
+            if (!getCurrentUser()?.id) {
+                return {
+                    status: 503,
+                    body: { ok: false, error: 'The server is not logged in to VRChat right now' }
+                };
+            }
+            const stateParam = url.searchParams.get('state');
+            const states = stateParam === null ? null : stateParam.split(',').filter(Boolean);
+            if (states && (states.length === 0 || !states.every((state) => FRIEND_STATES.includes(state)))) {
+                return {
+                    status: 400,
+                    body: { ok: false, error: `state must be a comma-separated list of ${FRIEND_STATES.join(', ')}` }
+                };
+            }
+            const friends = getFriends()
+                .map(publicFriend)
+                .filter((friend) => !states || states.includes(friend.state))
+                .sort(
+                    (x, y) =>
+                        x.displayName.localeCompare(y.displayName, undefined, { sensitivity: 'base' }) ||
+                        x.id.localeCompare(y.id)
+                );
+            const limit = Math.max(1, intParam(url.searchParams.get('limit'), DEFAULT_LIMIT, MAX_LIMIT));
+            const offset = intParam(url.searchParams.get('offset'), 0, 1e9);
+            return {
+                status: 200,
+                body: { ok: true, total: friends.length, results: friends.slice(offset, offset + limit) }
+            };
         }
     },
     {

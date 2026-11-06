@@ -65,6 +65,7 @@ the spec is generated from it, so they cannot describe different things.
 | `profile:read` | `GET /api/v1/me` |
 | `playtime:read` | `GET /api/v1/time-together`, `POST /api/v1/time-together`, `GET /api/v1/time-together/{userId}` |
 | `users:read` | `GET /api/v1/users?ids=`, `POST /api/v1/users`, `GET /api/v1/users/{userId}` |
+| `friends:read` | `GET /api/v1/friends` |
 
 New endpoint = add its scope to `SCOPES` in `server/src/api-keys.js` if it needs a new one, add a route entry in `public-api-routes.js`, then `pnpm run openapi`.
 
@@ -127,6 +128,31 @@ collapsed), same response. A malformed body or bad id is a `400`; the body is
 capped at 64 KiB. The cache fills as the
 server sees users (friends, instance members), so someone you only met once
 long ago may be missing.
+
+### `GET /api/v1/friends` (`friends:read`)
+
+Your friend list from the server's in-memory friend store; VRChat is never queried. Sorted by name
+(case-insensitive), paginated:
+
+```json
+{ "ok": true, "total": 212, "results": [
+    { "id": "usr_…", "displayName": "Carol", "state": "online", "status": "join me",
+      "profilePictureUrl": "https://…", "avatarThumbnailUrl": "https://…" } ] }
+```
+
+- `state` is `online`, `active` or `offline`; filter with `?state=online,active` (anything else is a `400`).
+- `limit` (default 100, max 500) and `offset` paginate; `total` is the match count before pagination.
+- **Deliberately limited:** no location or instance, no status text, no favourites or notes. A friend whose
+  profile isn't in the user cache still appears (name from the friend store, empty picture fields).
+- `503` while the server isn't logged in to VRChat.
+
+### Which picture you get
+
+`profilePictureUrl` is the first non-empty of: `profilePicOverride` (VRChat+ profile picture),
+`currentAvatarImageUrl`, `userIcon`, then the fallbacks `imageUrl`, `iconUrl`, `thumbnailUrl`,
+`profilePicOverrideThumbnail` and `currentAvatarThumbnailImageUrl`; `avatarThumbnailUrl` prefers the avatar
+thumbnail. Which fields VRChat fills varies by user and endpoint, so a user is only reported without a picture
+when the cache holds none of them (and an id missing from the cache has no data at all: see `missing`).
 
 ## Managing keys
 

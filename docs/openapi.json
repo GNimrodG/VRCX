@@ -3,7 +3,7 @@
   "info": {
     "title": "VRCX-Headless external API",
     "version": "1",
-    "description": "Read-only, API-key-authenticated access to the headless server's local cache (POST is used only to send long id lists in a body). Opt-in via VRCX_API_ENABLED. Scopes: `profile:read` (Current user: id, display name, profile picture); `playtime:read` (When you were in the same instance as other players, with start/end and player count (from the game log)); `users:read` (Cached name and picture for users, looked up by id)."
+    "description": "Read-only, API-key-authenticated access to the headless server's local cache (POST is used only to send long id lists in a body). Opt-in via VRCX_API_ENABLED. Scopes: `profile:read` (Current user: id, display name, profile picture); `playtime:read` (When you were in the same instance as other players, with start/end and player count (from the game log)); `users:read` (Cached name and picture for users, looked up by id); `friends:read` (Your friend list: name, picture, status and online state (from the server cache))."
   },
   "paths": {
     "/api/v1/me": {
@@ -665,6 +665,127 @@
         }
       }
     },
+    "/api/v1/friends": {
+      "get": {
+        "operationId": "listFriends",
+        "summary": "Your friend list",
+        "description": "The account's friends from the server's cache (VRChat is never queried): name, picture, status and online state, sorted by name. Locations, status text and everything else are deliberately not exposed. `503` while the server is not logged in to VRChat.",
+        "tags": [
+          "friends"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "friends:read",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "description": "Comma-separated states to include, e.g. `online,active`. Default: all.",
+            "schema": {
+              "type": "string",
+              "example": "online,active"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Friends sorted by name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "total",
+                    "results"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "total": {
+                      "type": "integer",
+                      "description": "Matching friends before pagination"
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Friend"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key lacks the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is not logged in to VRChat right now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users/{userId}": {
       "get": {
         "operationId": "getUser",
@@ -831,6 +952,45 @@
             "type": "integer",
             "minimum": 0,
             "description": "Distinct other players (not you, not userId) present at any point during the interval. 0 = 1-on-1."
+          }
+        }
+      },
+      "Friend": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "state",
+          "status",
+          "profilePictureUrl",
+          "avatarThumbnailUrl"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "online",
+              "active",
+              "offline"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "The friend's status (`join me`, `active`, `ask me`, `busy`, …). Empty if not cached."
+          },
+          "profilePictureUrl": {
+            "type": "string",
+            "description": "Empty if the user is not cached"
+          },
+          "avatarThumbnailUrl": {
+            "type": "string",
+            "description": "Empty if the user is not cached"
           }
         }
       },

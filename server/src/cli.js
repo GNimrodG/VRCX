@@ -582,7 +582,8 @@ async function main() {
             trustProxy,
             apiEnabled: isApiEnabled(),
             getCurrentUser: () => stores.user.currentUser,
-            getCachedUser: (id) => stores.user.cachedUsers.get(id)
+            getCachedUser: (id) => stores.user.cachedUsers.get(id),
+                getFriends: () => [...stores.friend.friends.values()]
         });
         const host = process.env.VRCX_SERVER_HOST || '0.0.0.0';
         const port = Number(process.env.VRCX_SERVER_PORT) || 9000;
@@ -605,7 +606,8 @@ async function main() {
                 apiEnabled: true,
                 tls,
                 getCurrentUser: () => stores.user.currentUser,
-                getCachedUser: (id) => stores.user.cachedUsers.get(id)
+                getCachedUser: (id) => stores.user.cachedUsers.get(id),
+                getFriends: () => [...stores.friend.friends.values()]
             });
             await new Promise((resolve, reject) => {
                 publicServer.once('error', reject);

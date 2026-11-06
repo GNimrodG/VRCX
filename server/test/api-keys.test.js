@@ -79,6 +79,24 @@ describe('API keys', () => {
         ({ server } = await createHttpServer(handle, {
             apiEnabled: true,
             getCurrentUser: () => user,
+            getFriends: () => [
+                { id: 'usr_f3', state: 'offline', name: 'zed', ref: undefined },
+                {
+                    id: 'usr_f1',
+                    state: 'online',
+                    name: 'carol',
+                    ref: {
+                        id: 'usr_f1',
+                        displayName: 'Carol',
+                        status: 'join me',
+                        statusDescription: 'private text',
+                        location: 'wrld_secret:123',
+                        currentAvatarImageUrl: 'https://img/c.png',
+                        currentAvatarThumbnailImageUrl: 'https://img/ct.png'
+                    }
+                },
+                { id: 'usr_f2', state: 'active', name: 'bob', ref: { id: 'usr_f2', displayName: 'bob' } }
+            ],
             getCachedUser: (id) =>
                 id === 'usr_00000000-0000-0000-0000-00000000000a'
                     ? {
@@ -250,6 +268,38 @@ describe('API keys', () => {
         // POST exists only where declared; the single-user route stays GET-only
         expect((await call(`/api/v1/users/${A}`, { key: body.key, method: 'POST', body: {} })).status).toBe(405);
         expect((await call('/api/v1/users', { key: body.key, method: 'DELETE' })).status).toBe(405);
+    });
+
+    it('lists friends with friends:read, sharing only the allowlisted fields', async () => {
+        const { body } = await mint(['friends:read']);
+        const list = await call('/api/v1/friends', { key: body.key });
+        expect(list.status).toBe(200);
+        expect(list.body.total).toBe(3);
+        // sorted by name, case-insensitively; a friend that isn't cached falls back to the friend store's name
+        expect(list.body.results.map((f) => f.displayName)).toEqual(['bob', 'Carol', 'zed']);
+        const carol = list.body.results[1];
+        expect(carol).toEqual({
+            id: 'usr_f1',
+            displayName: 'Carol',
+            state: 'online',
+            status: 'join me',
+            profilePictureUrl: 'https://img/c.png',
+            avatarThumbnailUrl: 'https://img/ct.png'
+        });
+        expect(JSON.stringify(list.body)).not.toMatch(/private text|wrld_secret/);
+        expect(list.body.results[2]).toMatchObject({ id: 'usr_f3', state: 'offline', profilePictureUrl: '' });
+
+        const online = await call('/api/v1/friends?state=online,active', { key: body.key });
+        expect(online.body.results.map((f) => f.id)).toEqual(['usr_f2', 'usr_f1']);
+        expect(online.body.total).toBe(2);
+        const page = await call('/api/v1/friends?limit=1&offset=1', { key: body.key });
+        expect(page.body.results.map((f) => f.id)).toEqual(['usr_f1']);
+        expect(page.body.total).toBe(3);
+
+        expect((await call('/api/v1/friends?state=nope', { key: body.key })).status).toBe(400);
+        expect((await call('/api/v1/friends', { key: (await mint(['users:read'])).body.key })).status).toBe(403);
+        expect((await call('/api/v1/friends')).status).toBe(401);
+        expect((await call('/api/v1/friends', { key: body.key, method: 'POST', body: {} })).status).toBe(405);
     });
 
     it('serves the key-management page with a CSP pinned to its exact script', async () => {
