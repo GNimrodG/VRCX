@@ -7,7 +7,8 @@ import { useRouter } from 'vue-router';
 import { AppDebug } from '../services/appConfig';
 import { refreshCustomCss } from '../shared/utils/base/ui';
 import { updateLocalizedStrings } from '../plugins/i18n';
-import { createTrayDotController } from '../shared/utils/trayDot';
+import { TRAY_DOT_SWATCHES } from '../shared/constants/trayDot';
+import { createTrayDotController, resolveTrayDotColor } from '../shared/utils/trayDot';
 import { useAppearanceSettingsStore } from './settings/appearance';
 import { useAvatarStore } from './avatar';
 import { useGroupStore } from './group';
@@ -56,6 +57,8 @@ export const useUiStore = defineStore('Ui', () => {
     const altShiftR = keys['Alt+Shift+R'];
 
     const notifiedMenus = ref([]);
+    /** Bumped whenever the (non-reactive) pending tray types change. */
+    const pendingVersion = ref(0);
     const shiftHeld = ref(false);
     /** Current tray/favicon dot color, or null for no dot. */
     const trayIconNotify = ref(null);
@@ -329,18 +332,47 @@ export const useUiStore = defineStore('Ui', () => {
                 notifiedMenus.value.push(index);
             }
             trayDot.notify(index, type);
+            pendingVersion.value++;
         }
     }
 
     function removeNotify(index) {
         notifiedMenus.value = notifiedMenus.value.filter((i) => i !== index);
         trayDot.clear(index);
+        pendingVersion.value++;
     }
 
     function clearAllNotifications() {
         notifiedMenus.value = [];
         trayDot.clearAll();
+        pendingVersion.value++;
     }
+
+    /**
+     * Color of the in-app red-dot replacement for the given menus, by the user's
+     * tray dot rules. `null` = show no dot. Reactive: reads the pending version
+     * and the rules, so call it from templates/computeds.
+     *
+     * @param {Iterable<string>} menus
+     * @returns {string | null} CSS color
+     */
+    function getMenuDotColor(menus) {
+        pendingVersion.value;
+        return toSwatch(trayDot.colorForMenus(menus));
+    }
+
+    /**
+     * Same, for a set of notification / friend-log types (e.g. the bell's unseen
+     * notifications) rather than menus.
+     *
+     * @param {Iterable<string | undefined>} types
+     * @returns {string | null} CSS color
+     */
+    function getTypesDotColor(types) {
+        return toSwatch(resolveTrayDotColor(trayDotSettings.rules, types));
+    }
+
+    const toSwatch = (color) => (color ? (TRAY_DOT_SWATCHES[color] ?? TRAY_DOT_SWATCHES.red) : null);
 
     function updateTrayIconNotify(force = false) {
         trayDot.update(force);
@@ -359,6 +391,8 @@ export const useUiStore = defineStore('Ui', () => {
         dialogCrumbs,
 
         notifyMenu,
+        getMenuDotColor,
+        getTypesDotColor,
         removeNotify,
         clearAllNotifications,
         showConsole,

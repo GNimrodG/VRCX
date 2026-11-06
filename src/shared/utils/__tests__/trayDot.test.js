@@ -508,3 +508,23 @@ describe('createTrayDotController', () => {
         }
     });
 });
+
+describe('colorForMenus', () => {
+    const rules = {
+        fallback: 'red',
+        colors: [
+            { color: 'blue', types: ['Friend'] },
+            { color: 'green', types: ['invite'] }
+        ]
+    };
+
+    it('resolves each menu from only its own pending types', () => {
+        const c = createTrayDotController({ getRules: () => rules, isEnabled: () => false, apply: () => {} });
+        c.notify('friend-log', 'Friend');
+        c.notify('notification', 'invite');
+        expect(c.colorForMenus(['friend-log'])).toBe('blue');
+        expect(c.colorForMenus(['notification'])).toBe('green');
+        expect(c.colorForMenus(['friend-log', 'notification'])).toBe('blue');
+        expect(c.colorForMenus(['feed'])).toBe(null);
+    });
+});

@@ -130,10 +130,18 @@ export function createPendingTrayTypes() {
         clearAll() {
             byMenu.clear();
         },
-        /** Distinct pending types across all menus. */
-        types() {
+        /**
+         * Distinct pending types across all menus, or only across `menus`.
+         *
+         * @param {Iterable<string>} [menus]
+         */
+        types(menus) {
             const out = new Set();
-            for (const counts of byMenu.values()) {
+            const sources = menus ? [...menus].map((menu) => byMenu.get(menu)) : byMenu.values();
+            for (const counts of sources) {
+                if (!counts) {
+                    continue;
+                }
                 for (const type of counts.keys()) {
                     out.add(type);
                 }
@@ -191,6 +199,16 @@ export function createTrayDotController({ getRules, isEnabled, apply }) {
             return update();
         },
         update,
+        /**
+         * Dot color for just `menus` (in-app nav dots), by the same rules as the
+         * tray. Ignores `isEnabled`: that gates the tray/favicon only.
+         *
+         * @param {Iterable<string>} menus
+         * @returns {string | null}
+         */
+        colorForMenus(menus) {
+            return resolveTrayDotColor(getRules(), pending.types(menus));
+        },
         get color() {
             return current;
         }

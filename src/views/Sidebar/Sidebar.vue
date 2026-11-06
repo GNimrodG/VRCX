@@ -37,7 +37,10 @@
                                 :ariaLabel="t('side_panel.notification_center.title')"
                                 @click="isNotificationCenterOpen = !isNotificationCenterOpen">
                                 <Bell />
-                                <span class="absolute top-1 right-1.25 size-1.5 rounded-full bg-red-500" />
+                                <span
+                                    v-if="bellDotColor"
+                                    class="absolute top-1 right-1.25 size-1.5 rounded-full"
+                                    :style="{ backgroundColor: bellDotColor }" />
                             </Button>
                         </TooltipWrapper>
                     </ContextMenuTrigger>
@@ -364,7 +367,8 @@
         useFavoriteStore,
         useFriendStore,
         useGroupStore,
-        useNotificationStore
+        useNotificationStore,
+        useUiStore
     } from '../../stores';
     import { runRefreshFriendsListFlow } from '../../coordinators/friendSyncCoordinator';
     import { normalizeFavoriteGroupsChange, resolveFavoriteGroups } from './sidebarSettingsUtils';
@@ -379,7 +383,28 @@
     const { friends, isRefreshFriendsLoading, onlineFriendCount } = storeToRefs(useFriendStore());
     const { groupInstances } = storeToRefs(useGroupStore());
     const notificationStore = useNotificationStore();
-    const { isNotificationCenterOpen, hasUnseenNotifications } = storeToRefs(notificationStore);
+    const {
+        isNotificationCenterOpen,
+        hasUnseenNotifications,
+        unseenFriendNotifications,
+        unseenGroupNotifications,
+        unseenOtherNotifications
+    } = storeToRefs(notificationStore);
+    const uiStore = useUiStore();
+    // Bell dot color follows the tray dot rules for the types actually unseen.
+    // Unseen ids not in the loaded table (type unknown) count as the fallback.
+    const bellDotColor = computed(() => {
+        const types = [
+            ...unseenFriendNotifications.value,
+            ...unseenGroupNotifications.value,
+            ...unseenOtherNotifications.value
+        ].map((n) => n.type);
+        const known = types.length;
+        if (notificationStore.unseenNotifications.length > known) {
+            types.push(undefined);
+        }
+        return uiStore.getTypesDotColor(types);
+    });
     const quickSearchStore = useQuickSearchStore();
     const { t } = useI18n();
 

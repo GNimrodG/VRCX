@@ -15,8 +15,9 @@
                                     :class="item.icon"
                                     class="inline-flex size-6 items-center justify-center text-lg relative"
                                     ><span
-                                        v-if="isNavItemNotified(item)"
-                                        class="notify-dot bg-red-500 -right-1!"
+                                        v-if="navItemDotColor(item)"
+                                        class="notify-dot -right-1!"
+                                        :style="{ backgroundColor: navItemDotColor(item) }"
                                         aria-hidden="true"></span
                                 ></i>
                                 <span v-show="!isCollapsed">{{
@@ -34,8 +35,9 @@
                                     :class="entry.icon"
                                     class="inline-flex size-4 items-center justify-center text-base relative"
                                     ><span
-                                        v-if="isEntryNotified(entry)"
-                                        class="notify-dot bg-red-500 -right-1! top-0.5!"
+                                        v-if="entryDotColor(entry)"
+                                        class="notify-dot -right-1! top-0.5!"
+                                        :style="{ backgroundColor: entryDotColor(entry) }"
                                         aria-hidden="true"></span
                                 ></i>
                                 <span v-if="entry.titleIsCustom">{{ entry.label }}</span>
@@ -57,8 +59,9 @@
                                         :class="item.icon"
                                         class="inline-flex size-6 items-center justify-center text-lg relative"
                                         ><span
-                                            v-if="isNavItemNotified(item)"
-                                            class="notify-dot bg-red-500"
+                                            v-if="navItemDotColor(item)"
+                                            class="notify-dot"
+                                            :style="{ backgroundColor: navItemDotColor(item) }"
                                             aria-hidden="true"></span
                                     ></i>
                                     <span v-show="!isCollapsed">{{
@@ -84,8 +87,9 @@
                                                         :class="entry.icon"
                                                         class="inline-flex size-5 items-center justify-center text-base relative"
                                                         ><span
-                                                            v-if="isEntryNotified(entry)"
-                                                            class="notify-dot bg-red-500 -right-0.5!"
+                                                            v-if="entryDotColor(entry)"
+                                                            class="notify-dot -right-0.5!"
+                                                            :style="{ backgroundColor: entryDotColor(entry) }"
                                                             aria-hidden="true"></span
                                                     ></i>
                                                     <span v-if="entry.titleIsCustom">{{ entry.label }}</span>
@@ -188,11 +192,11 @@
             type: Boolean,
             default: false
         },
-        isEntryNotified: {
+        entryDotColor: {
             type: Function,
             required: true
         },
-        isNavItemNotified: {
+        navItemDotColor: {
             type: Function,
             required: true
         },
