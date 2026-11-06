@@ -32,8 +32,13 @@ vi.mock('../../../stores', () => ({
     useNotificationStore: () => ({
         isNotificationCenterOpen: mocks.centerOpen,
         hasUnseenNotifications: mocks.hasUnseen,
+        unseenFriendNotifications: ref([]),
+        unseenGroupNotifications: ref([]),
+        unseenOtherNotifications: ref([]),
+        unseenNotifications: [],
         markAllAsSeen: (...a) => mocks.markAllAsSeen(...a)
     }),
+    useUiStore: () => ({ getTypesDotColor: () => '#f04747' }),
     useAppearanceSettingsStore: () => ({
         sidebarSortMethod1: ref(''),
         sidebarSortMethod2: ref(''),
