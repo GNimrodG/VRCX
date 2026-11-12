@@ -288,8 +288,16 @@ namespace VRCX
             // Both rely on WinApi (kernel32), so this stays Windows-only; Linux keeps upstream's behaviour.
             if (OperatingSystem.IsWindows())
             {
-                ProcessMonitor.Instance.Init();
-                AutoAppLaunchManager.Instance.Init();
+                try
+                {
+                    ProcessMonitor.Instance.Init();
+                    AutoAppLaunchManager.Instance.Init();
+                }
+                catch (Exception ex)
+                {
+                    // optional convenience feature: never let it block client startup
+                    logger.Error(ex, "Failed to start ProcessMonitor/AutoAppLaunchManager");
+                }
             }
 
             VRCXVRInstance = new VRCXVRElectron();
