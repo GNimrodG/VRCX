@@ -221,32 +221,32 @@ namespace VRCX
             switch ((RegistryValueKind)typeInt)
             {
                 case RegistryValueKind.Binary:
-                {
-                    var bytes = VrcRegistryCodec.ToBinary(value);
-                    if (bytes == null)
                     {
-                        logger.Error($"Invalid value for REG_BINARY: {value}. It must be a string or byte array.");
-                        return false;
-                    }
+                        var bytes = VrcRegistryCodec.ToBinary(value);
+                        if (bytes == null)
+                        {
+                            logger.Error($"Invalid value for REG_BINARY: {value}. It must be a string or byte array.");
+                            return false;
+                        }
 
-                    using var regKey = Registry.CurrentUser.CreateSubKey(_folder);
-                    regKey.SetValue(name, bytes, RegistryValueKind.Binary);
-                    return true;
-                }
+                        using var regKey = Registry.CurrentUser.CreateSubKey(_folder);
+                        regKey.SetValue(name, bytes, RegistryValueKind.Binary);
+                        return true;
+                    }
 
                 case RegistryValueKind.DWord:
-                {
-                    var intValue = VrcRegistryCodec.ToDword(value);
-                    if (intValue == null)
                     {
-                        logger.Error($"Invalid value for REG_DWORD: {value}. It must be a valid integer.");
-                        return false;
-                    }
+                        var intValue = VrcRegistryCodec.ToDword(value);
+                        if (intValue == null)
+                        {
+                            logger.Error($"Invalid value for REG_DWORD: {value}. It must be a valid integer.");
+                            return false;
+                        }
 
-                    using var regKey = Registry.CurrentUser.CreateSubKey(_folder);
-                    regKey.SetValue(name, intValue.Value, RegistryValueKind.DWord);
-                    return true;
-                }
+                        using var regKey = Registry.CurrentUser.CreateSubKey(_folder);
+                        regKey.SetValue(name, intValue.Value, RegistryValueKind.DWord);
+                        return true;
+                    }
 
                 default:
                     logger.Error($"Unsupported set registry value type: {typeInt}");

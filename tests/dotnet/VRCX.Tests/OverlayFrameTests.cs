@@ -28,12 +28,12 @@ namespace VRCX.Tests
             // 3x3 frame, pixel (x, y) has B = y * 3 + x; crop the 2x2 block at (1, 1)
             var source = new byte[3 * 3 * 4];
             for (var y = 0; y < 3; y++)
-            for (var x = 0; x < 3; x++)
-            {
-                var i = (y * 3 + x) * 4;
-                source[i] = (byte)(y * 3 + x);
-                source[i + 3] = 255;
-            }
+                for (var x = 0; x < 3; x++)
+                {
+                    var i = (y * 3 + x) * 4;
+                    source[i] = (byte)(y * 3 + x);
+                    source[i + 3] = 255;
+                }
 
             var dest = new byte[2 * 2 * 4];
             OverlayFrame.CropBgraToRgba(source, 3, 1, 1, 2, 2, dest);

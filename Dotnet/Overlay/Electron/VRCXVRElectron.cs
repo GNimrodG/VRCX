@@ -731,20 +731,20 @@ namespace VRCX
                         }
                         else
                         {
-                        FlipImageVertically(ref imageData, SHARED_FRAME_WIDTH, SHARED_FRAME_HEIGHT);
-                        _overlayTextureWriter.WriteImageToBuffer(imageData);
-                        _overlayTextureWriter.UpdateTexture();
+                            FlipImageVertically(ref imageData, SHARED_FRAME_WIDTH, SHARED_FRAME_HEIGHT);
+                            _overlayTextureWriter.WriteImageToBuffer(imageData);
+                            _overlayTextureWriter.UpdateTexture();
 
-                        Texture_t texture = _overlayTextureWriter.AsTextureT();
-                        var bounds = new VRTextureBounds_t
-                        {
-                            uMin = 0f,
-                            uMax = 0.5f,
-                            vMin = 0f,
-                            vMax = (float)WRIST_FRAME_HEIGHT / SHARED_FRAME_HEIGHT
-                        };
-                        overlay.SetOverlayTextureBounds(overlayHandle, ref bounds);
-                        err = OpenVR.Overlay.SetOverlayTexture(overlayHandle, ref texture);
+                            Texture_t texture = _overlayTextureWriter.AsTextureT();
+                            var bounds = new VRTextureBounds_t
+                            {
+                                uMin = 0f,
+                                uMax = 0.5f,
+                                vMin = 0f,
+                                vMax = (float)WRIST_FRAME_HEIGHT / SHARED_FRAME_HEIGHT
+                            };
+                            overlay.SetOverlayTextureBounds(overlayHandle, ref bounds);
+                            err = OpenVR.Overlay.SetOverlayTexture(overlayHandle, ref texture);
                         }
                         if (err != EVROverlayError.None)
                         {
@@ -859,20 +859,20 @@ namespace VRCX
                         }
                         else
                         {
-                        FlipImageVertically(ref imageData, SHARED_FRAME_WIDTH, SHARED_FRAME_HEIGHT);
-                        _overlayTextureWriter.WriteImageToBuffer(imageData);
-                        _overlayTextureWriter.UpdateTexture();
+                            FlipImageVertically(ref imageData, SHARED_FRAME_WIDTH, SHARED_FRAME_HEIGHT);
+                            _overlayTextureWriter.WriteImageToBuffer(imageData);
+                            _overlayTextureWriter.UpdateTexture();
 
-                        Texture_t texture = _overlayTextureWriter.AsTextureT();
-                        var bounds = new VRTextureBounds_t
-                        {
-                            uMin = 0f,
-                            uMax = 1f,
-                            vMin = (float)(SHARED_FRAME_HEIGHT - HMD_FRAME_HEIGHT) / SHARED_FRAME_HEIGHT,
-                            vMax = 1f
-                        };
-                        overlay.SetOverlayTextureBounds(overlayHandle, ref bounds);
-                        err = OpenVR.Overlay.SetOverlayTexture(overlayHandle, ref texture);
+                            Texture_t texture = _overlayTextureWriter.AsTextureT();
+                            var bounds = new VRTextureBounds_t
+                            {
+                                uMin = 0f,
+                                uMax = 1f,
+                                vMin = (float)(SHARED_FRAME_HEIGHT - HMD_FRAME_HEIGHT) / SHARED_FRAME_HEIGHT,
+                                vMax = 1f
+                            };
+                            overlay.SetOverlayTextureBounds(overlayHandle, ref bounds);
+                            err = OpenVR.Overlay.SetOverlayTexture(overlayHandle, ref texture);
                         }
                         if (err != EVROverlayError.None)
                         {

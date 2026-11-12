@@ -166,18 +166,18 @@ public partial class Merger(SQLiteConnection dbConn, string oldDBName, string ne
                     old[0] = null;
                     return old;
                 }
-    
+
                 logger.Trace("Replacing print favorite");
-    
+
                 var oldDateTime = DateTime.Parse((string)old[2]);
                 var newDateTime = DateTime.Parse((string)existing[2]);
                 var updatedDateTime = oldDateTime < newDateTime ? oldDateTime : newDateTime;
                 existing[2] = updatedDateTime;
-    
+
                 return existing;
             }
         );
-    
+
         MergeTable(
             table => table.StartsWith("favorite_") && table != "favorite_print",
             [2, 3],
@@ -189,14 +189,14 @@ public partial class Merger(SQLiteConnection dbConn, string oldDBName, string ne
                     old[0] = null;
                     return old;
                 }
-    
+
                 logger.Trace("Replacing favorite");
-    
+
                 var oldDateTime = DateTime.Parse((string)old[1]);
                 var newDateTime = DateTime.Parse((string)existing[1]);
                 var updatedDateTime = oldDateTime < newDateTime ? oldDateTime : newDateTime;
                 existing[1] = updatedDateTime;
-    
+
                 return existing;
             }
         );
