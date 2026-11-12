@@ -35,6 +35,7 @@ import {
 } from './session.js';
 import { generateTotpSecret, totpProvisioningUri, verifyTotpCode } from './totp.js';
 import { checkForUpdate } from './update-check.js';
+import { assertUpdateRepoEnv } from './update-release.js';
 import { installWebApi } from './webapi-init.js';
 import { userRequest } from '../../src/api';
 
@@ -121,6 +122,7 @@ Environment:
                        Base32 TOTP secret for \`serve\`, instead of \`setup-totp\`
   VRCX_SERVER_HOST     HTTP/WS bind address                (default: 0.0.0.0)
   VRCX_SERVER_PORT     HTTP/WS bind port                   (default: 9000)
+  VRCX_UPDATE_REPO     GitHub repo clients update from; locks the setting
   VRCX_SERVER_TLS_CERT PEM certificate file, instead of --tls-cert
   VRCX_SERVER_TLS_KEY  PEM private key file, instead of --tls-key
   VRCX_SERVER_TRUST_PROXY
@@ -589,6 +591,7 @@ async function main() {
                 getFriends: () => [...stores.friend.friends.values()],
                 getNote: (id) => stores.user.state.notes.get(id)
         });
+        assertUpdateRepoEnv();
         const host = process.env.VRCX_SERVER_HOST || '0.0.0.0';
         const port = Number(process.env.VRCX_SERVER_PORT) || 9000;
 

@@ -712,8 +712,13 @@ async function handleRequest(handle, req, res, secure, options = {}) {
     // for auth. Nothing sensitive here: just this server's own version and
     // GitHub's already-public release metadata for that exact tag.
     if (req.method === 'GET' && url.pathname === '/api/update-info') {
-        const result = await getUpdateInfo();
-        sendJson(res, 200, result);
+        try {
+            sendJson(res, 200, await getUpdateInfo());
+        } catch (err) {
+            // e.g. an invalid VRCX_UPDATE_REPO / saved repo — report it,
+            // don't silently check somewhere else.
+            sendJson(res, 500, { ok: false, error: err.message });
+        }
         return;
     }
 

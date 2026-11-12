@@ -4,7 +4,7 @@ import { toast } from 'vue-sonner';
 import { useI18n } from 'vue-i18n';
 
 import { logWebRequest } from '../services/appConfig';
-import { branches } from '../shared/constants';
+import { branches, links } from '../shared/constants';
 import { getWhatsNewRelease, normalizeReleaseVersion } from '../shared/constants/whatsNewReleases';
 import { changeLogRemoveLinks } from '../shared/utils';
 import { isHostLinux } from '../shared/utils/hostOs.js';
@@ -147,6 +147,63 @@ export const useVRCXUpdaterStore = defineStore('VRCXUpdater', () => {
     const canSelfUpdate = ref(true);
     const forkServerVersion = ref('');
     const forkUpdateError = ref('');
+    // The GitHub repo (as a URL, for the Settings input) fork updates are
+    // fetched from. Stored in the shared (server-side) config so the server
+    // and every device agree, and so main.js's pre-window check — which asks
+    // the server, with no renderer to consult — uses it too. Locked when the
+    // server sets VRCX_UPDATE_REPO.
+    const FORK_REPO_CONFIG_KEY = 'VRCX_forkUpdateRepo';
+    const defaultForkRepoUrl = links.github;
+    const forkUpdateRepoUrl = ref(defaultForkRepoUrl);
+    const forkUpdateRepoLocked = ref(false);
+
+    /**
+     * @param {string} input GitHub URL or `owner/name`
+     * @returns {string | null} Canonical `owner/name`, or null if invalid
+     */
+    function parseForkRepo(input) {
+        const match = String(input ?? '')
+            .trim()
+            .match(
+                /^(?:(?:https?:\/\/)?(?:www\.)?github\.com\/)?([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?(?:\/.*)?$/
+            );
+        if (!match || /^\.+$/.test(match[1]) || /^\.+$/.test(match[2])) {
+            return null;
+        }
+        return `${match[1]}/${match[2]}`;
+    }
+
+    async function loadForkUpdateRepo() {
+        try {
+            const saved = await configRepository.getString(FORK_REPO_CONFIG_KEY, '');
+            if (saved && parseForkRepo(saved)) {
+                forkUpdateRepoUrl.value = `https://github.com/${saved}`;
+            }
+        } catch {
+            // Keep the default.
+        }
+    }
+    loadForkUpdateRepo();
+
+    /**
+     * Validates and saves the repo typed in Settings to the shared config.
+     * Saving the default clears the preference.
+     *
+     * @returns {Promise<boolean>} False if the input isn't a GitHub repo
+     */
+    async function setForkUpdateRepo(input) {
+        const slug = parseForkRepo(input);
+        if (!slug || forkUpdateRepoLocked.value) {
+            if (!slug) {
+                toast.error(t('message.vrcx_updater.fork_repo_invalid'));
+            }
+            return false;
+        }
+        const isDefault = slug.toLowerCase() === parseForkRepo(defaultForkRepoUrl).toLowerCase();
+        forkUpdateRepoUrl.value = `https://github.com/${slug}`;
+        await configRepository.setString(FORK_REPO_CONFIG_KEY, isDefault ? '' : slug);
+        return true;
+    }
 
     // Bare `<vrcx-date>.<minor>.<patch>`, stripped of the `VRCX `/`VRCX
     // Nightly ` prefix `currentVersion` still carries — this is what's
@@ -259,10 +316,17 @@ export const useVRCXUpdaterStore = defineStore('VRCXUpdater', () => {
             // reason.
             return;
         }
+        if (
+            options.repoInput !== undefined &&
+            !forkUpdateRepoLocked.value &&
+            !(await setForkUpdateRepo(options.repoInput))
+        ) {
+            return;
+        }
         forkUpdateStatus.value = 'checking';
         let info;
         try {
-            info = await updateService.getUpdateInfo(options);
+            info = await updateService.getUpdateInfo({ force: options.force });
         } catch (err) {
             forkUpdateStatus.value = 'mismatch-offline';
             forkUpdateError.value = err?.message ?? String(err);
@@ -270,6 +334,11 @@ export const useVRCXUpdaterStore = defineStore('VRCXUpdater', () => {
             return;
         }
         forkServerVersion.value = info.serverVersion;
+        forkUpdateRepoLocked.value = Boolean(info.repoLocked);
+        if (info.repo) {
+            // Show the repo the server actually used (matters when locked).
+            forkUpdateRepoUrl.value = `https://github.com/${info.repo}`;
+        }
         if (!info.release) {
             // Nothing published yet under the server's own MINOR — can't
             // tell whether the client is actually up to date, so report the
@@ -787,6 +856,9 @@ export const useVRCXUpdaterStore = defineStore('VRCXUpdater', () => {
         forkUpdateStatus,
         forkServerVersion,
         forkUpdateError,
+        forkUpdateRepoUrl,
+        forkUpdateRepoLocked,
+        setForkUpdateRepo,
         installedForkVersion,
         checkForForkUpdate,
         canSelfUpdate

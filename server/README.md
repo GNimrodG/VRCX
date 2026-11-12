@@ -185,6 +185,7 @@ keys and a read-only `/api/v1/*` API, optionally on its own public-only port
 | `VRCX_SERVER_TOTP_SECRET` | Base32 TOTP secret for `serve`, instead of running `setup-totp` |
 | `VRCX_SERVER_HOST`     | HTTP/WS bind address (default `0.0.0.0`)                |
 | `VRCX_SERVER_PORT`     | HTTP/WS bind port (default `9000`)                      |
+| `VRCX_UPDATE_REPO`     | GitHub repo (`owner/name` or URL) desktop clients fetch updates from (default `WentTheFox/VRCX-Headless`); forces and locks it — the desktop client's Settings → Fork Update repo field is otherwise shared via the server config |
 | `VRCX_SERVER_TLS_CERT` | PEM certificate file, instead of `--tls-cert`           |
 | `VRCX_SERVER_TLS_KEY`  | PEM private key file, instead of `--tls-key`            |
 | `HTTPS_PROXY`          | Honoured when `NODE_USE_ENV_PROXY=1` (set in the image) |

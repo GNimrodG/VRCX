@@ -13,6 +13,11 @@ vi.mock('node:https', () => ({
     default: { get: vi.fn() }
 }));
 
+const configGet = vi.hoisted(() => vi.fn());
+vi.mock('../../src/services/config.js', () => ({
+    default: { getString: configGet }
+}));
+
 vi.mock('../src/globals.js', () => ({
     readVersion: () => '2026.07.18',
     readForkVersion: () => '11.0',
@@ -23,7 +28,7 @@ vi.mock('../src/globals.js', () => ({
 
 import https from 'node:https';
 
-import { getUpdateInfo } from '../src/update-release.js';
+import { getUpdateInfo, parseRepoSlug, resolveRepo } from '../src/update-release.js';
 
 /**
  * @param {Record<string, any>} responses keyed by request path
@@ -48,6 +53,8 @@ function mockGithubResponses(responses) {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.VRCX_UPDATE_REPO;
+    configGet.mockResolvedValue('');
 });
 
 describe('getUpdateInfo', () => {
@@ -166,5 +173,41 @@ describe('getUpdateInfo', () => {
         await getUpdateInfo();
 
         expect(https.get).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('repo selection', () => {
+    it('parses URLs and owner/name, rejects junk', () => {
+        expect(parseRepoSlug('https://github.com/a/b')).toBe('a/b');
+        expect(parseRepoSlug('github.com/a/b.git')).toBe('a/b');
+        expect(parseRepoSlug('a/b')).toBe('a/b');
+        expect(parseRepoSlug('https://evil.example/a/b')).toBeNull();
+        expect(parseRepoSlug('a/../b')).toBeNull();
+        expect(parseRepoSlug('nope')).toBeNull();
+    });
+
+    it('uses the shared config value when no env var is set', async () => {
+        configGet.mockResolvedValue('me/my-fork');
+        expect(await resolveRepo()).toEqual({ repo: 'me/my-fork', locked: false });
+    });
+
+    it('lets VRCX_UPDATE_REPO override the config value and lock it', async () => {
+        configGet.mockResolvedValue('me/my-fork');
+        process.env.VRCX_UPDATE_REPO = 'https://github.com/forced/repo';
+        expect(await resolveRepo()).toEqual({ repo: 'forced/repo', locked: true });
+        mockGithubResponses({ '/repos/forced/repo/releases': [] });
+        const info = await getUpdateInfo({ force: true });
+        expect(info).toMatchObject({ repo: 'forced/repo', repoLocked: true });
+    });
+
+    it('errors on an invalid VRCX_UPDATE_REPO instead of falling back', async () => {
+        process.env.VRCX_UPDATE_REPO = 'not a repo';
+        await expect(resolveRepo()).rejects.toThrow(/VRCX_UPDATE_REPO/);
+        await expect(getUpdateInfo({ force: true })).rejects.toThrow();
+    });
+
+    it('errors on an invalid saved repo instead of falling back', async () => {
+        configGet.mockResolvedValue('garbage');
+        await expect(resolveRepo()).rejects.toThrow(/Saved update repository/);
     });
 });

@@ -127,13 +127,29 @@
                         {{ t('view.settings.general.fork_update.idle') }}
                     </span>
                 </div>
+                <div
+                    v-if="forkUpdateStatus !== 'checking' && forkUpdateStatus !== 'installing'"
+                    class="flex flex-col gap-1">
+                    <span class="block text-xs text-muted-foreground">
+                        {{ t('view.settings.general.fork_update.repo') }}
+                    </span>
+                    <Input
+                        v-model="forkRepoInput"
+                        class="h-8"
+                        :disabled="forkUpdateRepoLocked"
+                        placeholder="https://github.com/owner/repo"
+                        :aria-label="t('view.settings.general.fork_update.repo')" />
+                    <span v-if="forkUpdateRepoLocked" class="block text-xs text-muted-foreground">
+                        {{ t('view.settings.general.fork_update.repo_locked') }}
+                    </span>
+                </div>
                 <Button
                     v-if="forkUpdateStatus !== 'checking' && forkUpdateStatus !== 'installing'"
                     size="sm"
                     variant="outline"
                     class="w-fit"
                     :disabled="!canSelfUpdate"
-                    @click="checkForForkUpdate({ force: true })">
+                    @click="checkForForkUpdate({ force: true, repoInput: forkRepoInput })">
                     {{
                         forkUpdateStatus === 'mismatch-offline'
                             ? t('view.settings.general.fork_update.retry')
@@ -229,8 +245,9 @@
 </template>
 
 <script setup>
-    import { computed, defineAsyncComponent, ref } from 'vue';
+    import { computed, defineAsyncComponent, ref, watch } from 'vue';
     import { Button } from '@/components/ui/button';
+    import { Input } from '@/components/ui/input';
     import { Switch } from '@/components/ui/switch';
     import { storeToRefs } from 'pinia';
     import { useI18n } from 'vue-i18n';
@@ -274,6 +291,8 @@
         noUpdater,
         forkUpdateStatus,
         forkServerVersion,
+        forkUpdateRepoUrl,
+        forkUpdateRepoLocked,
         installedForkVersion,
         canSelfUpdate
     } = storeToRefs(vrcxUpdaterStore);
@@ -285,6 +304,12 @@
         checkForForkUpdate,
         updateProgressText
     } = vrcxUpdaterStore;
+
+    // Editable copy of the saved repo; synced when the store loads/learns it.
+    const forkRepoInput = ref(forkUpdateRepoUrl.value);
+    watch(forkUpdateRepoUrl, (value) => {
+        forkRepoInput.value = value;
+    });
 
     const ossDialog = ref(false);
     const isLinux = computed(() => LINUX);
