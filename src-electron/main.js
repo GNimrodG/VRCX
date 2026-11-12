@@ -20,6 +20,7 @@ const { WebSocket: WsClient } = require('ws');
 const { applyApiKeysFrameOverride } = require('./apiKeysFrame');
 const { verifyWithCustomCa } = require('./customCaTrust');
 const { refreshWithRetry, isTransientStatus } = require('./sessionRetry');
+const { getOverlayShmPath } = require('./overlayShm');
 
 //app.disableHardwareAcceleration();
 
@@ -209,7 +210,8 @@ const OVERLAY_HMD_FRAME_HEIGHT = 1024;
 const OVERLAY_SHARED_HEIGHT = OVERLAY_WRIST_FRAME_HEIGHT + OVERLAY_HMD_FRAME_HEIGHT;
 const OVERLAY_SHARED_WIDTH = Math.max(OVERLAY_WRIST_FRAME_WIDTH, OVERLAY_HMD_FRAME_WIDTH);
 const OVERLAY_FRAME_SIZE = OVERLAY_SHARED_WIDTH * OVERLAY_SHARED_HEIGHT * 4;
-const OVERLAY_SHM_PATH = '/dev/shm/vrcx_overlay';
+// Fork-only: /dev/shm on Linux, a temp-folder file on Windows (see overlayShm.js)
+const OVERLAY_SHM_PATH = getOverlayShmPath(process.platform, require('os').tmpdir());
 const overlayFrameBuffer = Buffer.alloc(OVERLAY_FRAME_SIZE + 1);
 let activeNotification = null;
 const persistentNotifications = new Set();
@@ -2079,8 +2081,8 @@ function createWindow() {
 let overlayWindow = undefined;
 
 function createOverlayWindowOffscreen() {
-    if (process.platform !== 'linux') {
-        console.error('Offscreen overlay is only supported on Linux.');
+    if (!OVERLAY_SHM_PATH) {
+        console.error('Offscreen overlay is only supported on Linux and Windows.');
         return;
     }
     isOverlayActive = true;
@@ -2111,7 +2113,7 @@ function createOverlayWindowOffscreen() {
     });
     overlayWindow.webContents.setFrameRate(48);
 
-    let fileUrl = `file://${path.join(rootDir, 'build/html/vr.html')}`;
+    let fileUrl = require('url').pathToFileURL(path.join(rootDir, 'build/html/vr.html')).href;
     if (debug) {
         fileUrl = 'http://localhost:9000/vr.html';
     }

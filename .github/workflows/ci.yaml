@@ -101,3 +101,9 @@ jobs:
       - name: Build the Electron .NET project
         timeout-minutes: 10
         run: dotnet build Dotnet/VRCX-Electron.csproj -p:Configuration=Release -p:WarningLevel=0 -p:Platform=x64 -p:PlatformTarget=x64 -p:RestorePackagesConfig=true -t:"Restore;Clean;Build" -m -r ${{ matrix.rid }}
+      # Fork-only: tests/dotnet covers the Windows registry/explorer/clipboard code, the Windows overlay
+      # frame conversion and the system monitor counters. The Windows leg runs the registry tests against a
+      # scratch key; the Linux leg skips those and runs the portable ones.
+      - name: Test the fork's native helpers
+        timeout-minutes: 10
+        run: dotnet test tests/dotnet/VRCX.Tests -c Release

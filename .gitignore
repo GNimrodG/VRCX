@@ -27,3 +27,7 @@ coverage/
 # committed; only their base64 form goes into GitHub Actions secrets.
 *.pfx
 *.p12
+
+# Fork-only: .NET test project build output
+tests/dotnet/**/bin/
+tests/dotnet/**/obj/

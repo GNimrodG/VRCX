@@ -53,7 +53,8 @@ What's actually OS-tested inside `Dotnet/AppApi/Electron/**`, verified live (202
 | `GetClipboard`/`CopyImageToClipboard` | tested (`xclip`) | **implemented, not yet run on Windows** (2026-11-12): PowerShell STA, in `WindowsNative.cs` |
 | `TryOpenInstanceInVrc` (attach a deeplink to an already-running client) | tested (`nsenter`+`wine`) | tested (2026-11-12): uses `VRCIPC` (`VRChatURLLaunchPipe`), as the CefSharp client did |
 | Auto-launch apps with VRChat (`ProcessMonitor` + `AutoAppLaunchManager`) | not started (WinApi-based) | tested (2026-11-12): started in `Program.Init()` on Windows only |
-| VR overlay (`VRCXVRElectron.cs`: libGL/X11/Wayland/EGL only), system monitor (`/proc` only) | Linux-tested only | **non-functional**: no Windows texture path / counters |
+| VR overlay (`VRCXVRElectron.cs`) | tested (OpenGL via libGL/X11/Wayland/EGL, frames in `/dev/shm`) | **implemented, not yet run in SteamVR** (2026-11-12): frames in `%TEMP%\vrcx_overlay`, uploaded with `SetOverlayRaw` (no GL); `WindowsOverlay.cs`, `src-electron/overlayShm.js`. The crop/channel-swap maths is unit tested; the wrist/HMD placement (assumes `SetOverlayTextureBounds` is top-down) is not verified in a headset |
+| System monitor (`SystemMonitorElectron.cs`, overlay CPU/uptime) | tested (`/proc`) | **implemented, not yet run on Windows** (2026-11-12): `GetSystemTimes` + `Environment.TickCount64` |
 | Discord RPC, LogWatcher, screenshots | Linux-tested only | untested |
 
 So: **Windows is a supported OS for the Electron client's server-connection and game-launch path specifically**, not a general Windows/Electron parity claim — the rest of the native surface should be assumed Linux-only until someone does the same OS-branching `GameHandler.cs` just got.
@@ -298,6 +299,7 @@ pnpm install --frozen-lockfile
 pnpm run test:server      # the split's own guarantees
 pnpm test                 # upstream's suite must not regress
 pnpm run lint && pnpm run format:check
+dotnet test tests/dotnet/VRCX.Tests   # the fork's native helpers (Windows-only tests skip off Windows)
 node --import ./server/register-hooks.mjs server/src/cli.js info
 ```
 

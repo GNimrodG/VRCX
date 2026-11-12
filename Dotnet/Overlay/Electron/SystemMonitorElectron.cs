@@ -152,6 +152,9 @@ namespace VRCX
 
         private double GetUptime()
         {
+            if (OperatingSystem.IsWindows())
+                return WindowsSystemTimes.UptimeMilliseconds();
+
             try
             {
                 var uptimeContent = File.ReadAllText("/proc/uptime");
@@ -170,6 +173,9 @@ namespace VRCX
 
         private (long TotalTime, long IdleTime)? ReadCpuInfo()
         {
+            if (OperatingSystem.IsWindows())
+                return WindowsSystemTimes.Read();
+
             try
             {
                 var statContent = File.ReadAllText("/proc/stat");

@@ -40,7 +40,11 @@ namespace VRCX
         private bool _wristOverlayActive;
         private bool _wristOverlayWasActive;
 
-        private const string OVERLAY_SHM_PATH = "/dev/shm/vrcx_overlay";
+        // Fork-only: /dev/shm on Linux, a temp-folder file on Windows (see WindowsOverlay.cs)
+        private static readonly string OVERLAY_SHM_PATH =
+            OverlayFrame.GetSharedMemoryPath(OperatingSystem.IsWindows(), Path.GetTempPath());
+        private bool _useRawUpload;
+        private byte[] _rawFrameBuffer;
         private const int WRIST_FRAME_WIDTH = 512;
         private const int WRIST_FRAME_HEIGHT = 512;
         private const int WRIST_FRAME_SIZE = WRIST_FRAME_WIDTH * WRIST_FRAME_HEIGHT * 4; // RGBA
@@ -104,8 +108,49 @@ namespace VRCX
             //MainForm.Instance.Browser.ExecuteScriptAsync("console.log('VRCXVR Restarted');");
         }
 
+        private MemoryMappedFile OpenOverlayMapping()
+        {
+            return OperatingSystem.IsWindows()
+                ? OverlayFrame.OpenMapping(OVERLAY_SHM_PATH, SHARED_FRAME_SIZE + 1)
+                : MemoryMappedFile.CreateFromFile(OVERLAY_SHM_PATH, FileMode.Open, null, SHARED_FRAME_SIZE + 1);
+        }
+
+        /// <summary>
+        /// Windows: uploads one region of the shared frame with SetOverlayRaw instead of an OpenGL texture.
+        /// </summary>
+        private EVROverlayError UploadRawFrame(CVROverlay overlay, ulong overlayHandle, byte[] frame, int x, int y,
+            int width, int height)
+        {
+            var size = width * height * OverlayFrame.BytesPerPixel;
+            if (_rawFrameBuffer == null || _rawFrameBuffer.Length != size)
+                _rawFrameBuffer = new byte[size];
+
+            OverlayFrame.CropBgraToRgba(frame, SHARED_FRAME_WIDTH, x, y, width, height, _rawFrameBuffer);
+
+            var bounds = new VRTextureBounds_t { uMin = 0f, uMax = 1f, vMin = 0f, vMax = 1f };
+            overlay.SetOverlayTextureBounds(overlayHandle, ref bounds);
+
+            var pin = GCHandle.Alloc(_rawFrameBuffer, GCHandleType.Pinned);
+            try
+            {
+                return overlay.SetOverlayRaw(overlayHandle, pin.AddrOfPinnedObject(), (uint)width, (uint)height,
+                    (uint)OverlayFrame.BytesPerPixel);
+            }
+            finally
+            {
+                pin.Free();
+            }
+        }
+
         private void SetupTextures()
         {
+            if (OperatingSystem.IsWindows())
+            {
+                // no GL context on Windows: frames go up as raw RGBA buffers (UploadRawFrame)
+                _useRawUpload = true;
+                return;
+            }
+
             bool contextInitialised = false;
 
             // Check if we're running on Wayland
@@ -635,7 +680,7 @@ namespace VRCX
                         return err;
                     }
 
-                    _overlayMMF = MemoryMappedFile.CreateFromFile(OVERLAY_SHM_PATH, FileMode.Open, null, SHARED_FRAME_SIZE + 1);
+                    _overlayMMF = OpenOverlayMapping();
                     _overlayAccessor = _overlayMMF.CreateViewAccessor();
                 }
             }
@@ -674,11 +719,18 @@ namespace VRCX
             if (!dashboardVisible &&
                 DateTime.UtcNow.CompareTo(_nextOverlayUpdate) <= 0)
             {
-                if (_overlayTextureWriter != null)
+                if (_overlayTextureWriter != null || _useRawUpload)
                 {
                     byte[] imageData = GetLatestOverlayFrame();
                     if (imageData != null)
                     {
+                        if (_useRawUpload)
+                        {
+                            err = UploadRawFrame(overlay, overlayHandle, imageData, 0, 0, WRIST_FRAME_WIDTH,
+                                WRIST_FRAME_HEIGHT);
+                        }
+                        else
+                        {
                         FlipImageVertically(ref imageData, SHARED_FRAME_WIDTH, SHARED_FRAME_HEIGHT);
                         _overlayTextureWriter.WriteImageToBuffer(imageData);
                         _overlayTextureWriter.UpdateTexture();
@@ -693,6 +745,7 @@ namespace VRCX
                         };
                         overlay.SetOverlayTextureBounds(overlayHandle, ref bounds);
                         err = OpenVR.Overlay.SetOverlayTexture(overlayHandle, ref texture);
+                        }
                         if (err != EVROverlayError.None)
                         {
                             return err;
@@ -787,18 +840,25 @@ namespace VRCX
                         return err;
                     }
 
-                    _overlayMMF = MemoryMappedFile.CreateFromFile(OVERLAY_SHM_PATH, FileMode.Open, null, SHARED_FRAME_SIZE + 1);
+                    _overlayMMF = OpenOverlayMapping();
                     _overlayAccessor = _overlayMMF.CreateViewAccessor();
                 }
             }
 
             if (!dashboardVisible)
             {
-                if (_overlayTextureWriter != null)
+                if (_overlayTextureWriter != null || _useRawUpload)
                 {
                     byte[] imageData = GetLatestOverlayFrame();
                     if (imageData != null)
                     {
+                        if (_useRawUpload)
+                        {
+                            err = UploadRawFrame(overlay, overlayHandle, imageData, 0,
+                                SHARED_FRAME_HEIGHT - HMD_FRAME_HEIGHT, HMD_FRAME_WIDTH, HMD_FRAME_HEIGHT);
+                        }
+                        else
+                        {
                         FlipImageVertically(ref imageData, SHARED_FRAME_WIDTH, SHARED_FRAME_HEIGHT);
                         _overlayTextureWriter.WriteImageToBuffer(imageData);
                         _overlayTextureWriter.UpdateTexture();
@@ -813,6 +873,7 @@ namespace VRCX
                         };
                         overlay.SetOverlayTextureBounds(overlayHandle, ref bounds);
                         err = OpenVR.Overlay.SetOverlayTexture(overlayHandle, ref texture);
+                        }
                         if (err != EVROverlayError.None)
                         {
                             return err;
