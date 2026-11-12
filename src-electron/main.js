@@ -20,7 +20,7 @@ const { WebSocket: WsClient } = require('ws');
 const { applyApiKeysFrameOverride } = require('./apiKeysFrame');
 const { verifyWithCustomCa } = require('./customCaTrust');
 const { refreshWithRetry, isTransientStatus } = require('./sessionRetry');
-const { getOverlayShmPath } = require('./overlayShm');
+const { getOverlayFrameTransport, getOverlayShmPath, getOverlayFrameResize } = require('./overlayShm');
 
 //app.disableHardwareAcceleration();
 
@@ -210,8 +210,9 @@ const OVERLAY_HMD_FRAME_HEIGHT = 1024;
 const OVERLAY_SHARED_HEIGHT = OVERLAY_WRIST_FRAME_HEIGHT + OVERLAY_HMD_FRAME_HEIGHT;
 const OVERLAY_SHARED_WIDTH = Math.max(OVERLAY_WRIST_FRAME_WIDTH, OVERLAY_HMD_FRAME_WIDTH);
 const OVERLAY_FRAME_SIZE = OVERLAY_SHARED_WIDTH * OVERLAY_SHARED_HEIGHT * 4;
-// Fork-only: /dev/shm on Linux, a temp-folder file on Windows (see overlayShm.js)
-const OVERLAY_SHM_PATH = getOverlayShmPath(process.platform, require('os').tmpdir());
+// Fork-only: /dev/shm file on Linux, handed to .NET in-process on Windows (see overlayShm.js)
+const OVERLAY_FRAME_TRANSPORT = getOverlayFrameTransport(process.platform);
+const OVERLAY_SHM_PATH = getOverlayShmPath(process.platform);
 const overlayFrameBuffer = Buffer.alloc(OVERLAY_FRAME_SIZE + 1);
 let activeNotification = null;
 const persistentNotifications = new Set();
@@ -2081,12 +2082,12 @@ function createWindow() {
 let overlayWindow = undefined;
 
 function createOverlayWindowOffscreen() {
-    if (!OVERLAY_SHM_PATH) {
+    if (!OVERLAY_FRAME_TRANSPORT) {
         console.error('Offscreen overlay is only supported on Linux and Windows.');
         return;
     }
     isOverlayActive = true;
-    if (!fs.existsSync(OVERLAY_SHM_PATH)) {
+    if (OVERLAY_SHM_PATH && !fs.existsSync(OVERLAY_SHM_PATH)) {
         createOverlayWindowShm();
     }
 
@@ -2120,10 +2121,25 @@ function createOverlayWindowOffscreen() {
     overlayWindow.loadURL(fileUrl, { userAgent: version });
     // Use paint event for offscreen rendering
     overlayWindow.webContents.on('paint', (_event, _dirty, image) => {
-        const buffer = image.toBitmap();
+        // Fork-only: with display scaling the bitmap is larger than the frame .NET expects (see overlayShm.js)
+        const resize = getOverlayFrameResize(image.getSize(), OVERLAY_SHARED_WIDTH, OVERLAY_SHARED_HEIGHT);
+        const buffer = (resize ? image.resize(resize) : image).toBitmap();
         //console.log('Captured frame via paint event, size:', buffer.length);
-        writeOverlayFrame(buffer);
+        if (OVERLAY_FRAME_TRANSPORT === 'dotnet') {
+            submitOverlayFrameToDotNet(buffer);
+        } else {
+            writeOverlayFrame(buffer);
+        }
     });
+}
+
+// Fork-only: Windows frame transport (see overlayShm.js); Buffer marshals to Memory<byte> without a copy
+function submitOverlayFrameToDotNet(imageBuffer) {
+    try {
+        interopApi.getDotNetObject('OverlayFrameSinkElectron').Submit(imageBuffer);
+    } catch (err) {
+        console.error('Error submitting overlay frame:', err);
+    }
 }
 
 function writeOverlayFrame(imageBuffer) {
@@ -2617,7 +2633,7 @@ function disposeOverlay() {
     }
     overlayWindow = undefined;
     isOverlayActive = false;
-    if (fs.existsSync(OVERLAY_SHM_PATH)) {
+    if (OVERLAY_SHM_PATH && fs.existsSync(OVERLAY_SHM_PATH)) {
         fs.unlinkSync(OVERLAY_SHM_PATH);
     }
 }
