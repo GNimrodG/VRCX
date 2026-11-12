@@ -121,8 +121,19 @@ vi.mock('lucide-vue-next', () => ({
     LogIn: { template: '<i data-testid="icon-login" />' },
     Mail: { template: '<i data-testid="icon-mail" />' },
     MapPin: { template: '<i data-testid="icon-map" />' },
+    Pencil: { template: '<i data-testid="icon-pencil" />' },
     RefreshCw: { template: '<i data-testid="icon-refresh" />' },
-    UsersRound: { template: '<i data-testid="icon-users" />' }
+    UsersRound: { template: '<i data-testid="icon-users" />' },
+    CalendarDays: { template: '<i data-testid="icon-calendardays" />' },
+    CalendarPlus: { template: '<i data-testid="icon-calendarplus" />' },
+    IdCard: { template: '<i data-testid="icon-idcard" />' },
+    Megaphone: { template: '<i data-testid="icon-megaphone" />' },
+    PowerIcon: { template: '<i data-testid="icon-powericon" />' },
+    SquareStack: { template: '<i data-testid="icon-squarestack" />' },
+    Star: { template: '<i data-testid="icon-star" />' },
+    TrainFront: { template: '<i data-testid="icon-trainfront" />' },
+    UserLock: { template: '<i data-testid="icon-userlock" />' },
+    UserPlus2: { template: '<i data-testid="icon-userplus2" />' }
 }));
 
 import InstanceActionBar from '../InstanceActionBar.vue';
@@ -137,7 +148,7 @@ function mountBar(props = {}) {
             instanceLocation: '',
             shortname: 'sn',
             instance: {
-                ownerId: 'usr_me',
+                ownerId: 'usr_other',
                 capacity: 16,
                 userCount: 4,
                 hasCapacityForYou: true,

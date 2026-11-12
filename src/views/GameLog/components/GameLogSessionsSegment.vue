@@ -7,9 +7,9 @@
             @click="collapsed = !collapsed">
             <ChevronRight
                 class="size-3.5 shrink-0 text-muted-foreground transition-transform duration-150"
-                :class="{ 
+                :class="{
                     'rotate-90': !collapsed,
-                    'opacity-0 pointer-events-none': segment.events.length === 0 
+                    'opacity-0 pointer-events-none': segment.events.length === 0
                 }" />
             <Location
                 :location="segment.location"
