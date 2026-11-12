@@ -1,4 +1,14 @@
-import type { CurrentUser, Favorite, Group, Instance, Notification, UpdateInstanceRequest, User, World } from 'vrchat';
+import type {
+    CreateInstanceRequest,
+    CurrentUser,
+    Favorite,
+    Group,
+    Instance,
+    Notification,
+    UpdateInstanceRequest,
+    User,
+    World
+} from 'vrchat';
 
 // cursed line to convert Date and bigint to expected types
 export type Json<T> = T extends Date
@@ -81,6 +91,8 @@ export interface VrcxGroup extends Json<Group> {
 }
 
 export interface VrcxInstance extends Json<Instance> {
+    creationLanguages?: string[];
+    languagesIso639?: string[];
     $fetchedAt: string;
     $disabledContentSettings: string[];
 }
@@ -89,6 +101,25 @@ export interface InstanceCount {
     asOf: string;
     events: number;
     instances: number;
+}
+
+export interface InstanceCategory {
+    deleted: boolean;
+    iconUrl: string;
+    id: string;
+    name: string;
+    order: number;
+}
+
+export interface InstanceVibe {
+    deleted: boolean;
+    id: string;
+    title: string;
+}
+
+export interface VrcxCreateInstanceRequest extends Json<CreateInstanceRequest> {
+    languages?: string[];
+    minimumAvatarPerformance?: string;
 }
 
 export interface VrcxUpdateInstanceRequest {
@@ -117,6 +148,12 @@ export interface MarketplaceAvatarSearchParams {
 
 export interface VrcxWorld extends Json<World> {
     $isLabs: boolean;
+}
+
+export type WorldRatingValue = 'like' | 'dislike';
+
+export interface WorldRating {
+    value: WorldRatingValue | null;
 }
 
 export type VrcxNotification = Json<Notification> & {
