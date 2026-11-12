@@ -35,6 +35,9 @@
                                     <SelectItem value="google" :text-value="t('dialog.translation_api.mode_google')">
                                         {{ t('dialog.translation_api.mode_google') }}
                                     </SelectItem>
+                                    <SelectItem value="deepl" :text-value="t('dialog.translation_api.mode_deepl')">
+                                        {{ t('dialog.translation_api.mode_deepl') }}
+                                    </SelectItem>
                                     <SelectItem value="openai" :text-value="t('dialog.translation_api.mode_openai')">
                                         {{ t('dialog.translation_api.mode_openai') }}
                                     </SelectItem>
@@ -55,6 +58,22 @@
                                 type="password"
                                 show-password
                                 placeholder="AIzaSy..."
+                                clearable />
+                        </FieldContent>
+                    </Field>
+                </FieldGroup>
+            </template>
+
+            <template v-if="form.translationApiType === 'deepl'">
+                <FieldGroup>
+                    <Field>
+                        <FieldLabel>{{ t('dialog.translation_api.deepl_description') }}</FieldLabel>
+                        <FieldContent>
+                            <InputGroupField
+                                v-model="form.translationApiKey"
+                                type="password"
+                                show-password
+                                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:fx"
                                 clearable />
                         </FieldContent>
                     </Field>
@@ -149,9 +168,26 @@
                     ">
                     {{ t('dialog.translation_api.guide') }}
                 </Button>
-                <Button variant="outline" v-if="form.translationApiType === 'openai'" @click="testOpenAiTranslation">
-                    {{ t('dialog.translation_api.test') }}
+                <Button
+                    variant="outline"
+                    v-if="form.translationApiType === 'deepl'"
+                    @click="
+                        openExternalLink('https://support.deepl.com/hc/en-us/articles/360020695820-Authentication-Key')
+                    ">
+                    {{ t('dialog.translation_api.guide') }}
                 </Button>
+                <TooltipWrapper
+                    v-if="form.translationApiType === 'openai' || form.translationApiType === 'deepl'"
+                    side="top"
+                    :disabled="translationApi"
+                    :content="t('dialog.translation_api.test_disabled_tooltip')">
+                    <!-- span: a disabled button swallows the pointer events the tooltip needs -->
+                    <span class="inline-flex">
+                        <Button variant="outline" :disabled="!translationApi" @click="testTranslation">
+                            {{ t('dialog.translation_api.test') }}
+                        </Button>
+                    </span>
+                </TooltipWrapper>
                 <Button @click="saveTranslationApiConfig">
                     {{ t('dialog.translation_api.save') }}
                 </Button>
@@ -179,6 +215,7 @@
 
     const {
         bioLanguage,
+        translationApi,
         translationApiKey,
         translationApiType,
         translationApiEndpoint,
@@ -289,11 +326,8 @@
         }
     }
 
-    async function testOpenAiTranslation() {
-        if (form.translationApiType !== 'openai') {
-            return;
-        }
-        if (!form.translationApiEndpoint || !form.translationApiModel) {
+    async function testTranslation() {
+        if (form.translationApiType === 'openai' && (!form.translationApiEndpoint || !form.translationApiModel)) {
             toast.warning(t('dialog.translation_api.msg_fill_endpoint_model'));
             return;
         }
@@ -311,7 +345,11 @@
                 toast.success(t('dialog.translation_api.msg_test_success'));
             } else {
                 console.error('[TranslationAPI] Test returned empty result');
-                toast.error(t('dialog.translation_api.msg_test_failed'));
+                // DeepL's translateText() already toasted the specific reason;
+                // a second toast here would replace it.
+                if (form.translationApiType !== 'deepl') {
+                    toast.error(t('dialog.translation_api.msg_test_failed'));
+                }
             }
         } catch (err) {
             console.error('[TranslationAPI] Test failed', err);

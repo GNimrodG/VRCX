@@ -49,7 +49,7 @@ export const useAdvancedSettingsStore = defineStore('AdvancedSettings', () => {
     const youTubeApiKey = ref('');
     const translationApi = ref(false);
     const translationApiKey = ref('');
-    const translationApiType = ref('google'); // 'google' | 'openai'
+    const translationApiType = ref('google'); // 'google' | 'deepl' | 'openai'
     const translationApiEndpoint = ref('https://api.openai.com/v1/chat/completions');
     const translationApiModel = ref('gpt-4o-mini');
     const translationApiPrompt = ref('');
@@ -685,6 +685,27 @@ export const useAdvancedSettingsStore = defineStore('AdvancedSettings', () => {
         return data;
     }
 
+    /**
+     * Map a VRCX language code to a DeepL target_lang value.
+     *
+     * @param {string} lang
+     * @returns {string}
+     */
+    function toDeepLTargetLang(lang) {
+        switch (lang) {
+            case 'en':
+                return 'EN-US';
+            case 'pt':
+                return 'PT-BR';
+            case 'zh-CN':
+                return 'ZH-HANS';
+            case 'zh-TW':
+                return 'ZH-HANT';
+            default:
+                return String(lang).toUpperCase();
+        }
+    }
+
     async function translateText(text, targetLang, overrides) {
         if (!translationApi.value) {
             toast.warning('Translation API disabled');
@@ -721,6 +742,47 @@ export const useAdvancedSettingsStore = defineStore('AdvancedSettings', () => {
                 logWebRequest('[EXTERNAL POST]', url, `(${response.status})`, data);
                 return data.data.translations[0].translatedText;
             } catch (err) {
+                console.error('[TranslationAPI] Google request failed', err);
+                toast.error(`Translation failed: ${err.message}`);
+                return null;
+            }
+        }
+
+        if (provider === 'deepl') {
+            const keyToUse = overrides?.key ?? translationApiKey.value;
+            if (!keyToUse) {
+                toast.warning('No Translation API key configured');
+                return null;
+            }
+            try {
+                // Free-plan keys end in ":fx" and use a different host.
+                const host = keyToUse.endsWith(':fx') ? 'api-free.deepl.com' : 'api.deepl.com';
+                const url = `https://${host}/v2/translate`;
+                const response = await webApiService.execute({
+                    url,
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `DeepL-Auth-Key ${keyToUse}`,
+                        Referer: 'https://vrcx.app'
+                    },
+                    body: JSON.stringify({
+                        text: [text],
+                        target_lang: toDeepLTargetLang(targetLang)
+                    })
+                });
+                if (response.status !== 200) {
+                    throw new Error(`Translation API error: ${response.status} - ${response.data}`);
+                }
+                const data = JSON.parse(response.data);
+                logWebRequest('[EXTERNAL POST]', url, `(${response.status})`, data);
+                const translated = data?.translations?.[0]?.text;
+                if (!translated) {
+                    console.error('[TranslationAPI] DeepL returned no translation', data);
+                }
+                return translated ?? null;
+            } catch (err) {
+                console.error('[TranslationAPI] DeepL request failed', err);
                 toast.error(`Translation failed: ${err.message}`);
                 return null;
             }
@@ -779,7 +841,8 @@ export const useAdvancedSettingsStore = defineStore('AdvancedSettings', () => {
 
             const translated = data?.choices?.[0]?.message?.content;
             return typeof translated === 'string' ? translated.trim() : null;
-        } catch {
+        } catch (err) {
+            console.error('[TranslationAPI] OpenAI request failed', err);
             toast.error(`Translation failed`);
             return null;
         }

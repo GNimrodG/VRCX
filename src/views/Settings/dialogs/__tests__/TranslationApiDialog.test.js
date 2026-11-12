@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 const bioLanguage = ref('en');
+const translationApi = ref(true);
 const translationApiKey = ref('');
 const translationApiType = ref('google');
 const translationApiEndpoint = ref('');
@@ -31,6 +32,7 @@ const translationApiPrompt = ref('');
 vi.mock('pinia', () => ({
     storeToRefs: () => ({
         bioLanguage,
+        translationApi,
         translationApiKey,
         translationApiType,
         translationApiEndpoint,
