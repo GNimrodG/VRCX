@@ -62,6 +62,9 @@ namespace VRCX
 
         public override string GetClipboard()
         {
+            if (OperatingSystem.IsWindows())
+                return WinGetClipboard();
+
             var process = new Process
             {
                 StartInfo = new ProcessStartInfo
@@ -321,6 +324,12 @@ namespace VRCX
                  !path.EndsWith(".bmp") &&
                  !path.EndsWith(".webp")))
                 return;
+
+            if (OperatingSystem.IsWindows())
+            {
+                WinCopyImageToClipboard(path);
+                return;
+            }
 
             var process = new Process
             {

@@ -315,6 +315,12 @@ namespace VRCX
             if (!File.Exists(path) && !Directory.Exists(path))
                 return;
 
+            if (OperatingSystem.IsWindows())
+            {
+                WinOpenFolderAndSelectItem(path, isFolder);
+                return;
+            }
+
             string directoryPath = isFolder ? path : Path.GetDirectoryName(path);
             var commandAttempt = new Dictionary<string, string>
             {

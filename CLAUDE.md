@@ -47,10 +47,14 @@ What's actually OS-tested inside `Dotnet/AppApi/Electron/**`, verified live (202
 |---|---|---|
 | Server connection, RPC, agent channel, TLS/CA trust | tested (AppImage, phase 5) | tested |
 | `StartGame`/`StartGameFromPath` (VRChat autodetect + launch) | tested (Steam-on-Linux paths) | tested (Steam/VRChat registry keys, `GameHandler.cs`'s `StartGameWindows`/`StartGameFromPathWindows`) |
-| Everything else in `Folders.cs` (screenshot/app-data/crash paths, `OpenFolderAndSelectItem`'s `xdg-open`/`nautilus`/etc, `which`-based command detection) | tested | **untested, almost certainly broken** — written entirely around Linux paths and Linux-only shell commands, no Windows branch added |
+| `Folders.cs` path setup (`InitWindowsPaths`: app-data/crash/screenshot paths) | tested | tested |
+| `OpenFolderAndSelectItem` ("open folder" buttons) | tested (`xdg-open`/`nautilus`/etc) | **implemented, not yet run on Windows** (2026-11-12): `explorer.exe`, in `WindowsNative.cs` |
+| VRChat registry get/set/backup/restore (`RegistryPlayerPrefs.cs`) | tested (Wine `reg`) | **implemented, not yet run on Windows** (2026-11-12): real `Registry.CurrentUser`, restored from the deleted CefSharp client, in `WindowsNative.cs` |
+| `GetClipboard`/`CopyImageToClipboard` | tested (`xclip`) | **implemented, not yet run on Windows** (2026-11-12): PowerShell STA, in `WindowsNative.cs` |
 | `TryOpenInstanceInVrc` (attach a deeplink to an already-running client) | tested (`nsenter`+`wine`) | tested (2026-11-12): uses `VRCIPC` (`VRChatURLLaunchPipe`), as the CefSharp client did |
 | Auto-launch apps with VRChat (`ProcessMonitor` + `AutoAppLaunchManager`) | not started (WinApi-based) | tested (2026-11-12): started in `Program.Init()` on Windows only |
-| VR overlay, Discord RPC, LogWatcher, registry, screenshots | Linux-tested only | untested |
+| VR overlay (`VRCXVRElectron.cs`: libGL/X11/Wayland/EGL only), system monitor (`/proc` only) | Linux-tested only | **non-functional**: no Windows texture path / counters |
+| Discord RPC, LogWatcher, screenshots | Linux-tested only | untested |
 
 So: **Windows is a supported OS for the Electron client's server-connection and game-launch path specifically**, not a general Windows/Electron parity claim — the rest of the native surface should be assumed Linux-only until someone does the same OS-branching `GameHandler.cs` just got.
 

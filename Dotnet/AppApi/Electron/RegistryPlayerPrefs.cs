@@ -467,6 +467,9 @@ namespace VRCX
 
         public override object GetVRChatRegistryKey(string key)
         {
+            if (OperatingSystem.IsWindows())
+                return WinGetVRChatRegistryKey(key);
+
             try
             {
                 key = AddHashToKeyName(key);
@@ -508,6 +511,9 @@ namespace VRCX
 
         public override bool SetVRChatRegistryKey(string key, object value, int typeInt)
         {
+            if (OperatingSystem.IsWindows())
+                return WinSetVRChatRegistryKey(key, value, typeInt);
+
             var type = (RegistryValueKind)typeInt;
             var keyName = AddHashToKeyName(key);
             switch (type)
@@ -596,6 +602,12 @@ namespace VRCX
 
         public override void SetVRChatRegistryKey(string key, byte[] value)
         {
+            if (OperatingSystem.IsWindows())
+            {
+                WinSetVRChatRegistryKeyBytes(key, value);
+                return;
+            }
+
             var keyName = AddHashToKeyName(key);
             var data = BitConverter.ToString(value).Replace("-", "");
             if (data.Length == 0)
@@ -613,6 +625,9 @@ namespace VRCX
         // public Dictionary<string, Dictionary<string, object>> GetVRChatRegistry()
         public string GetVRChatRegistryJson()
         {
+            if (OperatingSystem.IsWindows())
+                return WinGetVRChatRegistryJson();
+
             var registry = new Dictionary<string, Dictionary<string, object>>();
             const string regCommand = "query \"HKEY_CURRENT_USER\\SOFTWARE\\VRChat\\VRChat\"";
             var queryResult = GetWineRegCommand(regCommand);
@@ -719,6 +734,12 @@ namespace VRCX
 
         public override void SetVRChatRegistry(string json)
         {
+            if (OperatingSystem.IsWindows())
+            {
+                WinSetVRChatRegistry(json);
+                return;
+            }
+
             var dict = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, object>>>(json);
             foreach (var item in dict)
             {
@@ -764,6 +785,9 @@ namespace VRCX
 
         public override bool HasVRChatRegistryFolder()
         {
+            if (OperatingSystem.IsWindows())
+                return WinHasVRChatRegistryFolder();
+
             string regCommand = "query \"HKEY_CURRENT_USER\\SOFTWARE\\VRChat\\VRChat\"";
             var queryResult = GetWineRegCommand(regCommand);
             if (queryResult == null)
@@ -780,6 +804,12 @@ namespace VRCX
 
         public override void DeleteVRChatRegistryFolder()
         {
+            if (OperatingSystem.IsWindows())
+            {
+                WinDeleteVRChatRegistryFolder();
+                return;
+            }
+
             string regCommand = "delete \"HKEY_CURRENT_USER\\SOFTWARE\\VRChat\\VRChat\" /f";
             GetWineRegCommand(regCommand);
         }
