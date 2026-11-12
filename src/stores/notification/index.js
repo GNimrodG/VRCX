@@ -311,7 +311,9 @@ export const useNotificationStore = defineStore('Notification', () => {
                 return;
             }
             const ref = applyNotification(json);
-            unseenNotifications.value.push(ref.id);
+            if (!unseenNotifications.value.includes(ref.id)) {
+                unseenNotifications.value.push(ref.id);
+            }
             database.addNotificationToDatabase(ref);
             notificationTable.value.data.push(ref);
             uiStore.notifyMenu('notification', ref.type);
@@ -345,6 +347,7 @@ export const useNotificationStore = defineStore('Notification', () => {
      * @param notificationId
      */
     function handleNotificationHide(notificationId) {
+        dropUnseen(notificationId);
         const ref = notificationTable.value.data.find((n) => n.id === notificationId);
         if (typeof ref === 'undefined') {
             return;
@@ -509,6 +512,23 @@ export const useNotificationStore = defineStore('Notification', () => {
         notificationInitStatus.value = value;
     }
 
+    /**
+     * Drop a notification id from the unseen list (and the menu dot when it
+     * was the last one). Every path that hides/removes/expires a notification
+     * must call this, or the bell dot sticks with nothing to show.
+     *
+     * @param {string} notificationId
+     */
+    function dropUnseen(notificationId) {
+        let removed = false;
+        while (removeFromArray(unseenNotifications.value, notificationId)) {
+            removed = true;
+        }
+        if (removed && unseenNotifications.value.length === 0) {
+            uiStore.removeNotify('notification');
+        }
+    }
+
     function clearUnseenNotifications() {
         unseenNotifications.value = [];
     }
@@ -639,6 +659,7 @@ export const useNotificationStore = defineStore('Notification', () => {
     function handleNotificationExpire(args) {
         const { ref } = args;
         const D = userStore.userDialog;
+        dropUnseen(ref.id);
         if (ref.type !== 'friendRequest' || ref.senderUserId !== D.id) {
             return;
         }
@@ -741,6 +762,7 @@ export const useNotificationStore = defineStore('Notification', () => {
      */
     function handleNotificationV2Hide(notificationId) {
         database.expireNotificationV2(notificationId);
+        dropUnseen(notificationId);
         const ref = notificationTable.value.data.find((n) => n.id === notificationId);
         if (ref) {
             ref.expiresAt = new Date().toJSON();
@@ -752,6 +774,7 @@ export const useNotificationStore = defineStore('Notification', () => {
         const array = notificationTable.value.data;
         for (let i = array.length - 1; i >= 0; i--) {
             if (array[i].type === 'friendRequest' || array[i].type === 'ignoredFriendRequest') {
+                dropUnseen(array[i].id);
                 array.splice(i, 1);
             }
         }
@@ -1517,6 +1540,7 @@ export const useNotificationStore = defineStore('Notification', () => {
      * @param row
      */
     function deleteNotificationLog(row) {
+        dropUnseen(row.id);
         const idx = notificationTable.value.data.findIndex((e) => e.id === row.id);
         if (idx !== -1) {
             notificationTable.value.data.splice(idx, 1);
