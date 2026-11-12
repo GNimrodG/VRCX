@@ -14,6 +14,8 @@ import { applyUser, applyCurrentUser } from '../coordinators/userCoordinator';
 import { onGroupLeft, applyGroup, handleGroupMember } from '../coordinators/groupCoordinator';
 import { handleFriendAdd, handleFriendDelete } from '../coordinators/friendRelationshipCoordinator';
 import { parseLocation } from '../shared/utils';
+// direct import: the barrel is mid-load in a cycle under Node when the module-scope debounce() below runs
+import { debounce } from '../shared/utils/common';
 import { AppDebug } from './appConfig';
 import { groupRequest } from '../api';
 import { request } from './request';
@@ -26,6 +28,8 @@ import * as workerTimers from 'worker-timers';
 let webSocket = null;
 let lastWebSocketMessage = '';
 let webSocketClosedGracefully = true;
+
+const refreshOwnedItems = debounce(() => useUserStore().getAllProductPurchases(), 5000);
 
 /**
  * Reactive WebSocket state for status bar telemetry.
@@ -506,6 +510,7 @@ function handlePipeline(args) {
                 if (galleryStore.galleryDialogVisible && !galleryStore.galleryDialogInventoryLoading) {
                     galleryStore.getInventory();
                 }
+                refreshOwnedItems();
                 // on consuming a bundle
                 // {contentType: 'inventory', itemId: 'inv_', itemType: 'prop', actionType: 'add'}
             } else if (!contentType) {
@@ -527,7 +532,7 @@ function handlePipeline(args) {
                 notificationStore.notificationTable.filters[0].value.length === 0 ||
                 notificationStore.notificationTable.filters[0].value.includes(noty.type)
             ) {
-                uiStore.notifyMenu('notification');
+                uiStore.notifyMenu('notification', noty.type);
             }
             notificationStore.queueNotificationNoty(noty);
             notificationStore.appendNotificationTableEntry(noty);

@@ -23,7 +23,7 @@
                     <RefreshCw v-else />
                 </Button>
                 <span class="ml-1.5 text-sm">{{
-                    t('dialog.user.avatars.total_count', { count: userDialogAvatars.length })
+                    t('dialog.user.avatars.total_count', { count: liveAvatarCount })
                 }}</span>
             </div>
             <div class="flex items-center">
@@ -59,6 +59,7 @@
                             <SelectItem value="all">{{ t('dialog.user.avatars.all') }}</SelectItem>
                             <SelectItem value="public">{{ t('dialog.user.avatars.public') }}</SelectItem>
                             <SelectItem value="private">{{ t('dialog.user.avatars.private') }}</SelectItem>
+                            <SelectItem value="licensed">{{ t('dialog.user.avatars.purchased') }}</SelectItem>
                         </SelectContent>
                     </Select>
                 </template>
@@ -68,9 +69,15 @@
             <template v-if="filteredUserDialogAvatars.length">
                 <div
                     v-for="avatar in filteredUserDialogAvatars"
-                    :key="avatar.id"
-                    class="box-border flex items-center p-1.5 text-[13px] cursor-pointer w-[167px] hover:rounded-[25px_5px_5px_25px]"
-                    @click="showAvatarDialog(avatar.id)">
+                    :key="avatar.id || avatar.$seenFileId"
+                    class="box-border flex items-center p-1.5 text-[13px] w-[167px]"
+                    :class="
+                        avatar.$gone ? 'opacity-40 cursor-default' : 'cursor-pointer hover:rounded-[25px_5px_5px_25px]'
+                    "
+                    :title="
+                        avatar.$gone ? 'No longer in your avatar list (deleted, or replaced by a newer upload)' : ''
+                    "
+                    @click="openAvatar(avatar)">
                     <div class="relative inline-block flex-none size-9 mr-2.5">
                         <Avatar class="size-9">
                             <AvatarImage
@@ -108,7 +115,7 @@
 </template>
 
 <script setup>
-    import { computed, ref, watch } from 'vue';
+    import { computed, ref, shallowReactive, watch } from 'vue';
     import { useI18n } from 'vue-i18n';
     import { storeToRefs } from 'pinia';
 
@@ -128,25 +135,63 @@
 
     const userStore = useUserStore();
     const { userDialog, currentUser } = storeToRefs(userStore);
-    const { sortUserDialogAvatars } = userStore;
+    const { sortUserDialogAvatars, sortUserDialogLicensedAvatars } = userStore;
 
-    import { showAvatarDialog, lookupAvatars } from '../../../coordinators/avatarCoordinator';
+    import { showAvatarDialog, showAvatarAuthorDialog, lookupAvatars } from '../../../coordinators/avatarCoordinator';
+    import { database } from '../../../services/database';
+    import { extractFileId } from '../../../shared/utils';
     const { cachedAvatars } = useAvatarStore();
 
     const { avatarRemoteDatabase } = storeToRefs(useAdvancedSettingsStore());
 
     const userDialogAvatars = computed(() => {
-        const { avatars, avatarReleaseStatus } = userDialog.value;
+        const { avatars, licensedAvatars, avatarReleaseStatus } = userDialog.value;
         const isCurrentUser = userDialog.value.ref.id === currentUser.value.id;
         const releaseStatus = isCurrentUser ? avatarReleaseStatus : 'all';
+        if (releaseStatus === 'licensed') {
+            return licensedAvatars;
+        }
         if (releaseStatus === 'public' || releaseStatus === 'private') {
             return avatars.filter((avatar) => avatar.releaseStatus === avatarReleaseStatus);
         }
         return avatars;
     });
+    // Avatars this author was seen being worn in the feed, from the server's
+    // `seen_avatars` index. The feed has no avatar ids, so these are keyed by image
+    // file id and only resolved to an avatar (cache, then the external database)
+    // when clicked. For your own avatars the API list is authoritative, so entries
+    // missing from it are shown faded (`$gone`) once it has loaded; no extra
+    // requests are made to decide that. Fork addition, see docs/patch-inventory.md.
+    // Kept per user rather than cleared on every dialog change: going to an avatar
+    // and back re-opens this dialog with `userDialog.avatars` reset, and anything
+    // fetched before has to come back with it instead of being dropped.
+    const seenByUser = shallowReactive(new Map());
+    const seenAvatars = computed(() => seenByUser.get(userDialog.value.id) ?? []);
+    const remoteByUser = new Map();
+    const allUserDialogAvatars = computed(() => {
+        if (!seenAvatars.value.length) {
+            return userDialogAvatars.value;
+        }
+        const isOwn = userDialog.value.ref.id === currentUser.value.id;
+        if (isOwn && (userDialog.value.isAvatarsLoading || userDialog.value.avatarReleaseStatus !== 'all')) {
+            return userDialogAvatars.value;
+        }
+        const knownFiles = new Set(userDialogAvatars.value.map((avatar) => extractFileId(avatar.imageUrl)));
+        // A re-upload gets a new image file, so also match by name to avoid listing
+        // old versions of avatars you still have as deleted.
+        const knownNames = new Set(userDialogAvatars.value.map((avatar) => (avatar.name || '').toLowerCase()));
+        return [
+            ...userDialogAvatars.value,
+            ...seenAvatars.value.filter(
+                (avatar) =>
+                    !knownFiles.has(avatar.$seenFileId) && !(isOwn && knownNames.has((avatar.name || '').toLowerCase()))
+            )
+        ];
+    });
+    const liveAvatarCount = computed(() => allUserDialogAvatars.value.filter((avatar) => !avatar.$gone).length);
     const avatarSearchQuery = ref('');
     const filteredUserDialogAvatars = computed(() => {
-        const avatars = userDialogAvatars.value;
+        const avatars = allUserDialogAvatars.value;
         const query = avatarSearchQuery.value.trim().toLowerCase();
         if (!query) {
             return avatars;
@@ -164,7 +209,48 @@
     /**
      * @param userId
      */
+    async function loadSeenAvatars(userId) {
+        const isOwn = userId === currentUser.value.id;
+        try {
+            const rows = await database.getSeenAvatarsByOwner(userId);
+            seenByUser.set(
+                userId,
+                rows.map((row) => ({
+                    id: '',
+                    $seenFileId: row.fileId,
+                    $gone: isOwn,
+                    authorId: row.ownerId,
+                    name: row.name,
+                    imageUrl: row.imageUrl,
+                    thumbnailImageUrl: row.thumbnailImageUrl,
+                    releaseStatus: ''
+                }))
+            );
+        } catch (err) {
+            // e.g. a server older than this feature: the tab just shows what it had.
+            console.warn('Failed to load seen avatars', err);
+        }
+    }
+
+    /**
+     * @param avatar
+     */
+    function openAvatar(avatar) {
+        if (avatar.$gone) {
+            return;
+        }
+        if (avatar.id) {
+            showAvatarDialog(avatar.id);
+        } else {
+            showAvatarAuthorDialog(avatar.authorId, avatar.authorId, avatar.imageUrl);
+        }
+    }
+
+    /**
+     * @param userId
+     */
     function setUserDialogAvatars(userId) {
+        loadSeenAvatars(userId);
         const avatars = new Set();
         userDialogAvatars.value.forEach((avatar) => {
             avatars.add(avatar.id);
@@ -172,6 +258,15 @@
         for (const ref of cachedAvatars.values()) {
             if (ref.authorId === userId && !avatars.has(ref.id)) {
                 userDialog.value.avatars.push(ref);
+                avatars.add(ref.id);
+            }
+        }
+        // Results of an earlier external lookup: the remote refresh is skipped when
+        // coming back to the same user, so without this they would be lost.
+        for (const ref of remoteByUser.get(userId) ?? []) {
+            if (!avatars.has(ref.id)) {
+                userDialog.value.avatars.push(ref);
+                avatars.add(ref.id);
             }
         }
         sortUserDialogAvatars(userDialog.value.avatars);
@@ -188,17 +283,20 @@
             userDialogAvatars.value.forEach((avatar) => {
                 avatars.add(avatar.id);
             });
+            const fetched = [];
             if (data && typeof data === 'object') {
                 data.forEach((avatar) => {
                     if (avatar.id && !avatars.has(avatar.id)) {
                         if (avatar.authorId === userId) {
                             userDialog.value.avatars.push(avatar);
+                            fetched.push(avatar);
                         } else {
                             console.error(`Avatar authorId mismatch for ${avatar.id} - ${avatar.name}`);
                         }
                     }
                 });
             }
+            remoteByUser.set(userId, fetched);
             userDialog.value.isAvatarsLoading = false;
         }
         sortUserDialogAvatars(userDialog.value.avatars);
@@ -211,6 +309,7 @@
         const D = userDialog.value;
         D.avatarSorting = sortOption;
         sortUserDialogAvatars(D.avatars);
+        sortUserDialogLicensedAvatars(D.licensedAvatars);
     }
 
     defineExpose({ setUserDialogAvatars, setUserDialogAvatarsRemote });

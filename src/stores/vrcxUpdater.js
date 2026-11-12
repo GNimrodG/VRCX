@@ -662,7 +662,7 @@ export const useVRCXUpdaterStore = defineStore('VRCXUpdater', () => {
             }
         }
         D.releases = releases;
-        D.release = json[0].name;
+        D.release = releases[0]?.name ?? '';
         VRCXUpdateDialog.value.updatePendingIsLatest = false;
         if (D.release === pendingVRCXInstall.value) {
             // update already downloaded and latest version
@@ -734,7 +734,7 @@ export const useVRCXUpdaterStore = defineStore('VRCXUpdater', () => {
         if (!LINUX) {
             AppApi.RestartApplication(isUpgrade);
         } else {
-            window.electron.restartApp();
+            window.electron.restartApp(isUpgrade);
         }
     }
     function updateProgressText() {

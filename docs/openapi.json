@@ -1,0 +1,1061 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "VRCX-Headless external API",
+    "version": "1",
+    "description": "Read-only, API-key-authenticated access to the headless server's local cache (POST is used only to send long id lists in a body). Opt-in via VRCX_API_ENABLED. Scopes: `profile:read` (Current user: id, display name, profile picture); `playtime:read` (When you were in the same instance as other players, with start/end and player count (from the game log)); `users:read` (Cached name and picture for users, looked up by id); `notes:read` (Your private notes on users, added as `note` to user and friend entries (also needs users:read or friends:read)); `friends:read` (Your friend list: name, picture, status and online state (from the server cache))."
+  },
+  "paths": {
+    "/api/v1/me": {
+      "get": {
+        "operationId": "getMe",
+        "summary": "Current user",
+        "description": "The VRChat account the server is logged in as: name and profile picture.",
+        "tags": [
+          "profile"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "profile:read",
+        "responses": {
+          "200": {
+            "description": "The current user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "user"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "user": {
+                      "$ref": "#/components/schemas/CurrentUser"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key lacks the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is not logged in to VRChat right now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/time-together": {
+      "get": {
+        "operationId": "listTimeTogether",
+        "summary": "When you were in the same instance as other players",
+        "description": "One entry per shared-instance interval (start, end, duration, number of other players present), newest first, for calendar mapping. Entries carry only user ids; resolve names with /api/v1/users. Limited to the last 90 days and paginated.",
+        "tags": [
+          "playtime"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "playtime:read",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "description": "Look-back window in days; stays starting earlier are excluded. Capped at 90.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90,
+              "default": 90
+            }
+          },
+          {
+            "name": "maxOthers",
+            "in": "query",
+            "description": "Only intervals with at most this many other players. 0 = 1-on-1 only.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Intervals, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "since",
+                    "total",
+                    "results"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "Start of the window used"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "description": "Matching intervals before pagination"
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TogetherInterval"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key lacks the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "postTimeTogether",
+        "summary": "When you were in the same instance as several users (ids in the body)",
+        "description": "Same data as GET /api/v1/time-together/{userId}, for up to 50 users in one request, grouped by user id (every requested id is present, with `total: 0` if you have not met). `limit` and `offset` apply to each user's list separately. Read-only: nothing is created or changed.",
+        "tags": [
+          "playtime"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "playtime:read",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ids"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^usr_[0-9a-f-]+$"
+                    }
+                  },
+                  "days": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 90,
+                    "default": 90
+                  },
+                  "maxOthers": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Only intervals with at most this many other players. 0 = 1-on-1 only."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500,
+                    "default": 100
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Intervals per user, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "since",
+                    "users"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "Start of the window used"
+                    },
+                    "users": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "total",
+                          "results"
+                        ],
+                        "properties": {
+                          "total": {
+                            "type": "integer",
+                            "description": "Matching intervals before pagination"
+                          },
+                          "results": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/TogetherInterval"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing, malformed or too many ids",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key lacks the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/time-together/{userId}": {
+      "get": {
+        "operationId": "getTimeTogether",
+        "summary": "When you were in the same instance as one user",
+        "description": "Same as the list, for a single user. Empty `results` if you have not met.",
+        "tags": [
+          "playtime"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "playtime:read",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^usr_[0-9a-f-]+$"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "description": "Look-back window in days; stays starting earlier are excluded. Capped at 90.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90,
+              "default": 90
+            }
+          },
+          {
+            "name": "maxOthers",
+            "in": "query",
+            "description": "Only intervals with at most this many other players. 0 = 1-on-1 only.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Intervals, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "since",
+                    "total",
+                    "results"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "Start of the window used"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "description": "Matching intervals before pagination"
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TogetherInterval"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key lacks the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "operationId": "getUsers",
+        "summary": "Cached details for several users",
+        "description": "Name and picture for up to 50 user ids, from the server's cache only (VRChat is never queried). Ids not cached are listed in `missing`.",
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "users:read",
+        "parameters": [
+          {
+            "name": "ids",
+            "in": "query",
+            "required": true,
+            "description": "Comma-separated user ids",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cached users keyed by id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "users",
+                    "missing"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "users": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "$ref": "#/components/schemas/CachedUser"
+                      }
+                    },
+                    "missing": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing ids or too many",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key lacks the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "postUsers",
+        "summary": "Cached details for several users (ids in the body)",
+        "description": "Same as GET /api/v1/users, with the ids in a JSON body instead of the query string, so long lists don't hit URL length limits. Up to 50 ids; VRChat is never queried. Ids not cached are listed in `missing`. Read-only: nothing is created or changed.",
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "users:read",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ids"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^usr_[0-9a-f-]+$"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cached users keyed by id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "users",
+                    "missing"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "users": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "$ref": "#/components/schemas/CachedUser"
+                      }
+                    },
+                    "missing": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing ids or too many",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key lacks the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/friends": {
+      "get": {
+        "operationId": "listFriends",
+        "summary": "Your friend list",
+        "description": "The account's friends from the server's cache (VRChat is never queried): name, picture, status and online state, sorted by name. Locations, status text and everything else are deliberately not exposed. `503` while the server is not logged in to VRChat.",
+        "tags": [
+          "friends"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "friends:read",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "description": "Comma-separated states to include, e.g. `online,active`. Default: all.",
+            "schema": {
+              "type": "string",
+              "example": "online,active"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Friends sorted by name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "total",
+                    "results"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "total": {
+                      "type": "integer",
+                      "description": "Matching friends before pagination"
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Friend"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key lacks the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is not logged in to VRChat right now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{userId}": {
+      "get": {
+        "operationId": "getUser",
+        "summary": "Details for one user",
+        "description": "Served from the in-memory cache, else the persistent local cache (fresh for 24 h), else fetched from VRChat and stored. Bulk routes never query VRChat. `404` if no source has the user.",
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "users:read",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^usr_[0-9a-f-]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The cached user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "user"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "user": {
+                      "$ref": "#/components/schemas/CachedUser"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key lacks the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or user not in the cache)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "apiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A key from POST /api/keys: `Authorization: Bearer vrcx_<id>_<secret>`"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "ok",
+          "error"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "CurrentUser": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "profilePictureUrl",
+          "avatarThumbnailUrl",
+          "discordId"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "usr_00000000-0000-0000-0000-000000000000"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "profilePictureUrl": {
+            "type": "string",
+            "description": "Profile picture override, else current avatar image, else user icon. Empty if none."
+          },
+          "avatarThumbnailUrl": {
+            "type": "string"
+          },
+          "discordId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Discord user id, if VRChat has ever shown one for this user (persisted; null otherwise)"
+          }
+        }
+      },
+      "TogetherInterval": {
+        "type": "object",
+        "required": [
+          "userId",
+          "start",
+          "end",
+          "durationMs",
+          "otherPlayerCount"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "The other player. Look up details with /api/v1/users."
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "otherPlayerCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Distinct other players (not you, not userId) present at any point during the interval. 0 = 1-on-1."
+          }
+        }
+      },
+      "Friend": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "state",
+          "status",
+          "profilePictureUrl",
+          "avatarThumbnailUrl",
+          "discordId"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "online",
+              "active",
+              "offline"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "The friend's status (`join me`, `active`, `ask me`, `busy`, …). Empty if not cached."
+          },
+          "profilePictureUrl": {
+            "type": "string",
+            "description": "Empty if the user is not cached"
+          },
+          "avatarThumbnailUrl": {
+            "type": "string",
+            "description": "Empty if the user is not cached"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Your private VRChat note on this user (null if none). Present only for keys with the notes:read scope."
+          },
+          "discordId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Discord user id, if VRChat has ever shown one for this user (persisted; null otherwise)"
+          }
+        }
+      },
+      "CachedUser": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "profilePictureUrl",
+          "avatarThumbnailUrl",
+          "discordId"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "profilePictureUrl": {
+            "type": "string"
+          },
+          "avatarThumbnailUrl": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Your private VRChat note on this user (null if none). Present only for keys with the notes:read scope."
+          },
+          "discordId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Discord user id, if VRChat has ever shown one for this user (persisted; null otherwise)"
+          }
+        }
+      }
+    }
+  }
+}

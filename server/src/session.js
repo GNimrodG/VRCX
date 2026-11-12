@@ -55,10 +55,10 @@ function waitUntil(predicate, timeoutMs, timeoutMessage) {
  * when `login()`'s own promise settles (see file header).
  *
  * @param {ReturnType<typeof import('../../src/stores/index.js').createGlobalStores>} stores
- * @param {{ username: string, password: string, endpoint?: string, websocket?: string }} params
+ * @param {{ username: string; password: string; endpoint?: string; websocket?: string }} params
  * @param {{ timeoutMs?: number }} [options] `timeoutMs` needs to cover
  *   interactive 2FA entry, not just network latency — defaults to 2 minutes.
- * @returns {Promise<any>} the logged-in user
+ * @returns {Promise<any>} The logged-in user
  */
 export async function loginWithCredentials(
     stores,
@@ -95,11 +95,7 @@ export async function loginWithCredentials(
 export async function restoreSession(stores, { timeoutMs = 30_000 } = {}) {
     await stores.auth.autoLoginAfterMounted();
     try {
-        await waitUntil(
-            () => watchState.isLoggedIn,
-            timeoutMs,
-            'Timed out waiting for session restore'
-        );
+        await waitUntil(() => watchState.isLoggedIn, timeoutMs, 'Timed out waiting for session restore');
     } catch {
         return null;
     }
@@ -124,11 +120,7 @@ export async function logoutSession(stores) {
  * @returns {Promise<void>}
  */
 export function waitForPipelineConnected({ timeoutMs = 30_000 } = {}) {
-    return waitUntil(
-        () => wsState.connected,
-        timeoutMs,
-        'Timed out waiting for the pipeline to connect'
-    );
+    return waitUntil(() => wsState.connected, timeoutMs, 'Timed out waiting for the pipeline to connect');
 }
 
 const RETRY_DELAYS_MS = [10_000, 30_000, 60_000];
@@ -166,7 +158,12 @@ const RETRY_STEADY_STATE_MS = 5 * 60_000;
  * @param {typeof waitForPipelineConnected} [options.waitForPipelineConnectedFn]
  * @param {number[]} [options.retryDelaysMs]
  * @param {number} [options.steadyStateMs]
- * @returns {Promise<() => void>} stops the retry loop — `serve` itself
+ * @param {string | null} [options.resumeUserId] Resume this user even though
+ *   `lastUserLoggedIn` is unset: after a runtime logout `runLogoutFlow` has
+ *   already wiped it (and the cookie jar), so `superviseSession` passes the
+ *   user it remembered. It is written back before every attempt, because
+ *   `restoreSession()` reads it.
+ * @returns {Promise<() => void>} Stops the retry loop — `serve` itself
  *   never calls this (the loop is meant to run for the process's whole
  *   lifetime), it's there so tests can clean up fake timers deterministically
  */
@@ -177,13 +174,11 @@ export async function scheduleSessionRestoreRetries(
         restoreSessionFn = restoreSession,
         waitForPipelineConnectedFn = waitForPipelineConnected,
         retryDelaysMs = RETRY_DELAYS_MS,
-        steadyStateMs = RETRY_STEADY_STATE_MS
+        steadyStateMs = RETRY_STEADY_STATE_MS,
+        resumeUserId = null
     } = {}
 ) {
-    const lastUser = await handle.configRepository.getString(
-        'lastUserLoggedIn',
-        null
-    );
+    const lastUser = resumeUserId ?? (await handle.configRepository.getString('lastUserLoggedIn', null));
     if (!lastUser) {
         return () => {};
     }
@@ -198,18 +193,21 @@ export async function scheduleSessionRestoreRetries(
             return;
         }
         attempt += 1;
+        if (resumeUserId) {
+            await handle.configRepository.setString('lastUserLoggedIn', resumeUserId);
+            if (stores.auth?.loginForm) {
+                stores.auth.loginForm.lastUserLoggedIn = resumeUserId;
+            }
+        }
         const user = await restoreSessionFn(stores).catch(() => null);
         if (user?.id) {
             log.info('VRChat session restored after a retry', {
                 attempts: attempt
             });
             await waitForPipelineConnectedFn().catch((err) => {
-                log.warn(
-                    'Pipeline did not connect after a session-restore retry',
-                    {
-                        message: err.message
-                    }
-                );
+                log.warn('Pipeline did not connect after a session-restore retry', {
+                    message: err.message
+                });
             });
             stores.updateLoop.updateLoop();
             return;
@@ -229,6 +227,71 @@ export async function scheduleSessionRestoreRetries(
         if (timer) {
             clearTimeout(timer);
         }
+    };
+}
+
+/**
+ * Re-establishes the session after the server logs _itself_ out at runtime.
+ *
+ * Found live (2026-11-04): a container recreate raced a network that wasn't
+ * ready, `auth/user/friends` hit `UND_ERR_CONNECT_TIMEOUT`, and upstream's
+ * "Failed to load friends list, logging out" ran `runLogoutFlow`. The boot
+ * had already logged in, so `scheduleSessionRestoreRetries` was never armed,
+ * and `runLogoutFlow` had wiped the cookie jar and `lastUserLoggedIn`, so
+ * the server sat logged out until someone restarted it.
+ *
+ * Event-driven (a `watch` on `watchState.isLoggedIn`, no polling). It
+ * remembers the last logged-in user, and on a drop to logged-out starts the
+ * same backoff loop `serve` uses at boot (10s, 30s, 60s, then every 5
+ * minutes). Nothing on the server logs out deliberately — the `logout` CLI
+ * command is a separate process — so every in-process logout is treated as
+ * involuntary.
+ *
+ * @param {ReturnType<typeof import('../../src/stores/index.js').createGlobalStores>} stores
+ * @param {import('./db.js').DatabaseHandle} handle
+ * @param {object} [options] Test seams only.
+ * @param {typeof scheduleSessionRestoreRetries} [options.scheduleFn]
+ * @returns {() => void} Stops watching and any running retry loop
+ */
+export function superviseSession(stores, handle, { scheduleFn = scheduleSessionRestoreRetries } = {}) {
+    /** @type {string | null} */
+    let lastUserId = watchState.isLoggedIn ? (stores.user.currentUser?.id ?? null) : null;
+    /** @type {(() => void) | null} */
+    let stopRetries = null;
+    let arming = false;
+
+    const stopWatch = watch(
+        () => watchState.isLoggedIn,
+        async (loggedIn) => {
+            if (loggedIn) {
+                lastUserId = stores.user.currentUser?.id ?? lastUserId;
+                stopRetries?.();
+                stopRetries = null;
+                return;
+            }
+            if (!lastUserId || stopRetries || arming) {
+                return;
+            }
+            arming = true;
+            try {
+                log.warn('Logged out of VRChat at runtime; retrying with backoff', { userId: lastUserId });
+                stopRetries = await scheduleFn(stores, handle, {
+                    resumeUserId: lastUserId
+                });
+            } catch (err) {
+                log.error('Failed to schedule session recovery', {
+                    message: err.message
+                });
+            } finally {
+                arming = false;
+            }
+        }
+    );
+
+    return () => {
+        stopWatch();
+        stopRetries?.();
+        stopRetries = null;
     };
 }
 

@@ -80,8 +80,8 @@ describe('NavMenuFolderItem', () => {
                 activeMenuIndex: '',
                 collapsedDropdownOpenId: null,
                 hasNotifications: false,
-                isEntryNotified: () => false,
-                isNavItemNotified: () => false,
+                entryDotColor: () => null,
+                navItemDotColor: () => null,
                 isDashboardItem: () => false,
                 isToolItem: () => false
             }
@@ -100,8 +100,8 @@ describe('NavMenuFolderItem', () => {
                 activeMenuIndex: '',
                 collapsedDropdownOpenId: null,
                 hasNotifications: false,
-                isEntryNotified: () => false,
-                isNavItemNotified: () => false,
+                entryDotColor: () => null,
+                navItemDotColor: () => null,
                 isDashboardItem: () => false,
                 isToolItem: () => false
             }

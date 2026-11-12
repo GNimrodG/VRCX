@@ -97,6 +97,8 @@
             </SettingsItem>
         </SettingsGroup>
 
+        <TrayDotSettings />
+
         <SettingsGroup :title="t('view.settings.appearance.user_dialog.header')">
             <SettingsItem :label="t('view.settings.appearance.appearance.vrc_profile_themes')" toggle>
                 <Switch
@@ -497,6 +499,7 @@
     import { saveSortFavoritesOption } from '@/coordinators/favoriteCoordinator';
 
     import SettingsGroup from '../SettingsGroup.vue';
+    import TrayDotSettings from '../TrayDotSettings.vue';
     import SettingsItem from '../SettingsItem.vue';
 
     const { t } = useI18n();

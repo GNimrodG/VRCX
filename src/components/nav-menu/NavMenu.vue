@@ -34,9 +34,10 @@
                                                         :class="item.icon"
                                                         class="inline-flex size-6 items-center justify-center text-lg relative">
                                                         <span
-                                                            v-if="isNavItemNotified(item)"
-                                                            class="notify-dot-not-collapsed bg-red-500"
+                                                            v-if="navItemDotColor(item)"
+                                                            class="notify-dot-not-collapsed"
                                                             :class="{ '-right-1!': isCollapsed }"
+                                                            :style="{ backgroundColor: navItemDotColor(item) }"
                                                             aria-hidden="true"></span>
                                                     </i>
                                                     <span v-show="!isCollapsed">{{
@@ -86,8 +87,8 @@
                                         :active-menu-index="activeMenuIndex"
                                         :collapsed-dropdown-open-id="collapsedDropdownOpenId"
                                         :has-notifications="hasNotifications"
-                                        :is-entry-notified="isEntryNotified"
-                                        :is-nav-item-notified="isNavItemNotified"
+                                        :entry-dot-color="entryDotColor"
+                                        :nav-item-dot-color="navItemDotColor"
                                         :is-dashboard-item="isDashboardItem"
                                         :is-tool-item="isToolItem"
                                         @collapsed-dropdown-open-change="handleCollapsedDropdownOpenChange"
@@ -198,7 +199,7 @@
         useUiStore,
         useVRCXUpdaterStore
     } from '../../stores';
-    import { isEntryNotified as checkEntryNotified } from './navMenuUtils';
+    import { getEntryNotifiedMenus } from './navMenuUtils';
     import { DASHBOARD_NAV_KEY_PREFIX, links } from '../../shared/constants';
     import { openExternalLink } from '../../shared/utils';
 
@@ -285,7 +286,11 @@
     const version = computed(() => currentVersion.value?.split('VRCX ')?.[1] || '-');
     const vrcxLogo = new URL('../../../images/VRCX.png', import.meta.url).href;
 
-    const isEntryNotified = (entry) => checkEntryNotified(entry, notifiedMenus.value);
+    /** Dot color per the tray dot rules, or null for no dot. */
+    const entryDotColor = (entry) => {
+        const menus = getEntryNotifiedMenus(entry, notifiedMenus.value);
+        return menus.length ? uiStore.getMenuDotColor(menus) : null;
+    };
 
     const getItemTooltip = (item) => {
         const label = item.titleIsCustom ? item.title : t(item.title || '');
@@ -300,17 +305,21 @@
             ]);
     };
 
-    const isNavItemNotified = (item) => {
+    /** Same, for a top-level item: its own menu key plus all its children's. */
+    const navItemDotColor = (item) => {
         if (!item) {
-            return false;
+            return null;
         }
+        const menus = new Set();
         if (notifiedMenus.value.includes(item.index)) {
-            return true;
+            menus.add(item.index);
         }
-        if (item.children?.length) {
-            return item.children.some((entry) => isEntryNotified(entry));
+        for (const entry of item.children ?? []) {
+            for (const menu of getEntryNotifiedMenus(entry, notifiedMenus.value)) {
+                menus.add(menu);
+            }
         }
-        return false;
+        return menus.size ? uiStore.getMenuDotColor(menus) : null;
     };
 
     const handleSettingsClick = () => {

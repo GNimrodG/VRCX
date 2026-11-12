@@ -8,28 +8,19 @@
  * phase 3.
  *
  * Always run through the loader:
- *   node --import ./server/register-hooks.mjs server/src/cli.js <command>
+ * node --import ./server/register-hooks.mjs server/src/cli.js <command>
  * or, from the repo root:  npm run server -- <command>
  */
 import { readFileSync } from 'node:fs';
 
 import { mountHeadlessApp } from './app.js';
 import { migrate, openDatabase, readTargetDatabaseVersion } from './db.js';
-import {
-    buildServerVersion,
-    buildUserAgent,
-    readForkVersion,
-    readVersion
-} from './globals.js';
+import { buildServerVersion, buildUserAgent, readForkVersion, readVersion } from './globals.js';
 import { installGroupInstanceRelay } from './group-instance-relay.js';
 import { setServerTotp } from './http-auth.js';
 import { createHttpServer } from './http-server.js';
-import {
-    acquireLock,
-    installLockReleaseOnExit,
-    isLocked,
-    releaseLock
-} from './lock.js';
+import { createPublicApiServer, isApiEnabled } from './public-api.js';
+import { acquireLock, installLockReleaseOnExit, isLocked, releaseLock } from './lock.js';
 import { log } from './log.js';
 import { resolveDatabasePath } from './paths.js';
 import { ask, askHidden } from './prompt.js';
@@ -38,16 +29,14 @@ import {
     logoutSession,
     restoreSession,
     scheduleSessionRestoreRetries,
+    superviseSession,
     waitForPipelineConnected,
     wsState
 } from './session.js';
-import {
-    generateTotpSecret,
-    totpProvisioningUri,
-    verifyTotpCode
-} from './totp.js';
+import { generateTotpSecret, totpProvisioningUri, verifyTotpCode } from './totp.js';
 import { checkForUpdate } from './update-check.js';
 import { installWebApi } from './webapi-init.js';
+import { userRequest } from '../../src/api';
 
 import { AppDebug } from '../../src/services/appConfig.js';
 
@@ -73,6 +62,14 @@ Database:
                         as \`migrate\`, since \`serve\` also caches these
                         tables in memory and won't see the reset until it
                         restarts anyway.
+  dedupe-group-changes [--apply] [--force]
+                        Remove duplicate \`groupChange\` notifications (same
+                        group + message within 10s, written once per connected
+                        client before the feed-dedup fix). Dry run unless
+                        --apply is given; --apply first writes a
+                        \`.pre-dedupe-<timestamp>.bak\` copy next to the
+                        database. Refuses while \`serve\`/\`pipeline\` hold the
+                        write lock, unless --force is given.
   check-update [--force] [--json]
                         Check GitHub for a newer upstream VRCX release and
                         whether this fork already has a matching release.
@@ -173,17 +170,11 @@ async function bootstrapSession(handle) {
  * the operator clearly intended HTTPS.
  *
  * @param {Record<string, any>} flags
- * @returns {{ cert: Buffer, key: Buffer } | undefined}
+ * @returns {{ cert: Buffer; key: Buffer } | undefined}
  */
 function resolveTlsOptions(flags) {
-    const certPath =
-        typeof flags['tls-cert'] === 'string'
-            ? flags['tls-cert']
-            : process.env.VRCX_SERVER_TLS_CERT;
-    const keyPath =
-        typeof flags['tls-key'] === 'string'
-            ? flags['tls-key']
-            : process.env.VRCX_SERVER_TLS_KEY;
+    const certPath = typeof flags['tls-cert'] === 'string' ? flags['tls-cert'] : process.env.VRCX_SERVER_TLS_CERT;
+    const keyPath = typeof flags['tls-key'] === 'string' ? flags['tls-key'] : process.env.VRCX_SERVER_TLS_KEY;
 
     if (!certPath && !keyPath) {
         return undefined;
@@ -212,12 +203,8 @@ function resolveTrustProxy(flags) {
  * @param {Record<string, any>} flags
  */
 async function runLogin(handle, flags) {
-    const username =
-        typeof flags.username === 'string'
-            ? flags.username
-            : await ask('VRChat username or email: ');
-    const password =
-        process.env.VRCHAT_PASSWORD ?? (await askHidden('VRChat password: '));
+    const username = typeof flags.username === 'string' ? flags.username : await ask('VRChat username or email: ');
+    const password = process.env.VRCHAT_PASSWORD ?? (await askHidden('VRChat password: '));
 
     if (!username || !password) {
         throw new Error('A username and password are required');
@@ -254,25 +241,13 @@ async function main() {
         const resolved = resolveDatabasePath();
         const handle = await openDatabase({ ...openOptions, create: false });
         await handle.configRepository.init();
-        const version = await handle.configRepository.getInt(
-            'VRCX_databaseVersion',
-            0
-        );
-        const tables = handle.sqlite.Execute(
-            "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table'"
-        );
-        const lastUser = await handle.configRepository.getString(
-            'lastUserLoggedIn',
-            ''
-        );
+        const version = await handle.configRepository.getInt('VRCX_databaseVersion', 0);
+        const tables = handle.sqlite.Execute("SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table'");
+        const lastUser = await handle.configRepository.getString('lastUserLoggedIn', '');
         console.log(`app data directory : ${resolved.appDataDirectory}`);
         console.log(`database           : ${handle.databasePath}`);
-        console.log(
-            `resolved via       : ${openOptions.databasePath ? '--db argument' : resolved.source}`
-        );
-        console.log(
-            `schema version     : ${version} (target ${readTargetDatabaseVersion()})`
-        );
+        console.log(`resolved via       : ${openOptions.databasePath ? '--db argument' : resolved.source}`);
+        console.log(`schema version     : ${version} (target ${readTargetDatabaseVersion()})`);
         console.log(`tables             : ${tables[0]?.[0] ?? 0}`);
         console.log(`logged in as       : ${lastUser || '(nobody)'}`);
         console.log(`user agent         : ${buildUserAgent(readVersion())}`);
@@ -309,14 +284,10 @@ async function main() {
     if (command === 'tables') {
         const handle = await openDatabase({ ...openOptions, create: false });
         const names = handle.sqlite
-            .Execute(
-                "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-            )
+            .Execute("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
             .map((row) => String(row[0]));
         for (const name of names) {
-            const count = handle.sqlite.Execute(
-                `SELECT COUNT(*) FROM "${name.replaceAll('"', '""')}"`
-            );
+            const count = handle.sqlite.Execute(`SELECT COUNT(*) FROM "${name.replaceAll('"', '""')}"`);
             console.log(`${String(count[0]?.[0] ?? 0).padStart(9)}  ${name}`);
         }
         handle.close();
@@ -360,6 +331,64 @@ async function main() {
         return 0;
     }
 
+    if (command === 'dedupe-group-changes') {
+        const handle = await openDatabase({ ...openOptions, create: false });
+        const lockState = isLocked(handle.databasePath);
+        if (lockState.locked && flags.force !== true) {
+            handle.close();
+            throw new Error(
+                `${handle.databasePath} is currently held by pid ${lockState.pid} (serve/pipeline) — ` +
+                    'stop it first, or pass --force to run anyway.'
+            );
+        }
+        const windowMs = 10_000;
+        const tableNames = handle.sqlite
+            .Execute(
+                "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE '%\\_notifications' ESCAPE '\\'"
+            )
+            .map((row) => String(row[0]));
+        /** @type {Array<[string, string[]]>} */
+        const plan = [];
+        for (const name of tableNames) {
+            const quoted = `"${name.replaceAll('"', '""')}"`;
+            const rows = handle.sqlite.Execute(
+                `SELECT id, created_at, sender_user_id, message FROM ${quoted} WHERE type = 'groupChange' ORDER BY created_at, id`
+            );
+            const lastKept = new Map();
+            const doomed = [];
+            for (const [id, createdAt, sender, message] of rows) {
+                const key = `${sender}\u0000${message}`;
+                const time = Date.parse(createdAt);
+                const prev = lastKept.get(key);
+                if (prev !== undefined && Math.abs(time - prev) <= windowMs) {
+                    doomed.push(String(id));
+                } else {
+                    lastKept.set(key, time);
+                }
+            }
+            console.log(`${name}: ${rows.length} groupChange row(s), ${doomed.length} duplicate(s)`);
+            plan.push([quoted, doomed]);
+        }
+        const total = plan.reduce((sum, [, ids]) => sum + ids.length, 0);
+        if (flags.apply !== true) {
+            console.log(`\nDry run: ${total} row(s) would be deleted. Re-run with --apply to delete them.`);
+        } else if (total > 0) {
+            const backup = `${handle.databasePath}.pre-dedupe-${new Date().toISOString().replaceAll(/[:.]/g, '-')}.bak`;
+            handle.sqlite.ExecuteNonQuery(`VACUUM INTO '${backup.replaceAll("'", "''")}'`);
+            console.log(`\nBackup written to ${backup}`);
+            for (const [quoted, ids] of plan) {
+                for (const id of ids) {
+                    handle.sqlite.ExecuteNonQuery(`DELETE FROM ${quoted} WHERE id = @id`, { '@id': id });
+                }
+            }
+            console.log(`Deleted ${total} duplicate row(s).`);
+        } else {
+            console.log('\nNothing to delete.');
+        }
+        handle.close();
+        return 0;
+    }
+
     if (command === 'query') {
         const sql = positional.slice(1).join(' ');
         if (!sql) {
@@ -384,13 +413,9 @@ async function main() {
             if (!result.vrcxUpdateAvailable) {
                 console.log('Up to date with upstream.');
             } else if (result.forkReleaseAvailable) {
-                console.log(
-                    `Upstream update available — fork release already exists: ${result.forkReleaseTag}`
-                );
+                console.log(`Upstream update available — fork release already exists: ${result.forkReleaseTag}`);
             } else {
-                console.log(
-                    'Upstream update available — no matching fork release yet.'
-                );
+                console.log('Upstream update available — no matching fork release yet.');
                 console.log(`Open an issue: ${result.issueUrl}`);
             }
         }
@@ -398,9 +423,7 @@ async function main() {
         // release for it yet" — not an error — so the scheduled CI workflow
         // (task: daily check) can key off the exit code directly, the same
         // way `git diff --exit-code` uses its own exit code as a signal.
-        return result.vrcxUpdateAvailable && !result.forkReleaseAvailable
-            ? 1
-            : 0;
+        return result.vrcxUpdateAvailable && !result.forkReleaseAvailable ? 1 : 0;
     }
 
     if (command === 'login') {
@@ -418,9 +441,7 @@ async function main() {
             const { stores } = await bootstrapSession(handle);
             const user = await restoreSession(stores);
             if (!user?.id) {
-                throw new Error(
-                    'Not logged in, or the stored session is no longer valid. Run `login`.'
-                );
+                throw new Error('Not logged in, or the stored session is no longer valid. Run `login`.');
             }
             console.log(`${user.displayName} (${user.id})`);
             console.log(`status   : ${user.status ?? 'unknown'}`);
@@ -456,9 +477,7 @@ async function main() {
         const { stores } = await bootstrapSession(handle);
         const user = await restoreSession(stores);
         if (!user?.id) {
-            throw new Error(
-                'Not logged in, or the stored session is no longer valid. Run `login`.'
-            );
+            throw new Error('Not logged in, or the stored session is no longer valid. Run `login`.');
         }
         await waitForPipelineConnected();
         // Real self-rescheduling daemon loop (phase 2b step 8): friend/group
@@ -481,9 +500,7 @@ async function main() {
         clearInterval(interval);
         releaseLock(handle.databasePath);
         handle.close();
-        console.log(
-            `\nReceived ${wsState.messageCount} events (${wsState.bytesReceived} bytes)`
-        );
+        console.log(`\nReceived ${wsState.messageCount} events (${wsState.bytesReceived} bytes)`);
         return 0;
     }
 
@@ -530,6 +547,16 @@ async function main() {
         const { stores } = await bootstrapSession(handle);
         installGroupInstanceRelay(globalThis.WebApi);
 
+        // Must be attached *before* restoreSession(): the login can succeed
+        // and the app then log itself out while we wait for the pipeline
+        // below (found live 2026-11-05: a connect timeout on
+        // auth/user/friends during boot). Attached after that await, the
+        // supervisor saw isLoggedIn already false, remembered no user and
+        // never armed, and the boot retry loop is skipped when the login
+        // itself succeeded, so nothing ever retried. Watching from the start
+        // sees the false -> true -> false transitions.
+        superviseSession(stores, handle);
+
         const user = await restoreSession(stores).catch(() => null);
         if (user?.id) {
             await waitForPipelineConnected().catch((err) => {
@@ -537,9 +564,7 @@ async function main() {
             });
             stores.updateLoop.updateLoop();
         } else {
-            log.warn(
-                'Not logged in to VRChat; serving db/config RPC only. Run `login` for the pipeline stream.'
-            );
+            log.warn('Not logged in to VRChat; serving db/config RPC only. Run `login` for the pipeline stream.');
             // A failed restoreSession() above is a one-shot attempt — this
             // keeps trying in the background so a transient boot-time
             // failure (VRChat/the network not ready yet, most likely on an
@@ -553,10 +578,17 @@ async function main() {
             });
         }
 
-        const { server, streamClientCount, useHttps } = await createHttpServer(
-            handle,
-            { tls, trustProxy }
-        );
+        const { server, streamClientCount, closeSockets, useHttps } = await createHttpServer(handle, {
+            tls,
+            trustProxy,
+            apiEnabled: isApiEnabled(),
+            getCurrentUser: () => stores.user.currentUser,
+            getCachedUser: (id) => stores.user.cachedUsers.get(id),
+            fetchUser: (id) =>
+                stores.user.currentUser?.id ? userRequest.getUser({ userId: id }).then((args) => args.ref) : Promise.resolve(null),
+                getFriends: () => [...stores.friend.friends.values()],
+                getNote: (id) => stores.user.state.notes.get(id)
+        });
         const host = process.env.VRCX_SERVER_HOST || '0.0.0.0';
         const port = Number(process.env.VRCX_SERVER_PORT) || 9000;
 
@@ -564,19 +596,60 @@ async function main() {
             server.once('error', reject);
             server.listen(port, host, resolve);
         });
-        console.log(
-            `Serving on ${useHttps ? 'https' : 'http'}://${host}:${port}. Press Ctrl-C to stop.`
-        );
+        console.log(`Serving on ${useHttps ? 'https' : 'http'}://${host}:${port}. Press Ctrl-C to stop.`);
+
+        // Optional second listener exposing only the read-only /api/v1/* API,
+        // so it can be published without exposing login/RPC/the web client.
+        let publicServer = null;
+        const publicPort = Number(process.env.VRCX_PUBLIC_API_PORT) || 0;
+        if (publicPort && !isApiEnabled()) {
+            log.warn('VRCX_PUBLIC_API_PORT is set but VRCX_API_ENABLED is not; the API stays off.');
+        } else if (publicPort) {
+            const publicHost = process.env.VRCX_PUBLIC_API_HOST || '0.0.0.0';
+            publicServer = createPublicApiServer(handle, {
+                apiEnabled: true,
+                tls,
+                getCurrentUser: () => stores.user.currentUser,
+                getCachedUser: (id) => stores.user.cachedUsers.get(id),
+                fetchUser: (id) =>
+                    stores.user.currentUser?.id ? userRequest.getUser({ userId: id }).then((args) => args.ref) : Promise.resolve(null),
+                getFriends: () => [...stores.friend.friends.values()],
+                getNote: (id) => stores.user.state.notes.get(id)
+            });
+            await new Promise((resolve, reject) => {
+                publicServer.once('error', reject);
+                publicServer.listen(publicPort, publicHost, resolve);
+            });
+            console.log(`Public read-only API (/api/v1/* only) on ${tls ? 'https' : 'http'}://${publicHost}:${publicPort}.`);
+        }
 
         await new Promise((resolve) => {
             process.on('SIGINT', resolve);
             process.on('SIGTERM', resolve);
         });
 
-        console.log(
-            `\nShutting down (${streamClientCount()} stream client(s) connected).`
+        console.log(`\nShutting down (${streamClientCount()} stream client(s) connected).`);
+        // `close()` only resolves once every connection has ended, and browser
+        // tabs hold WebSocket and keep-alive connections open indefinitely, so
+        // it used to hang until the container's stop timeout SIGKILLed us.
+        // Stop accepting, say goodbye to the sockets, then force whatever is
+        // still open after a short grace.
+        const servers = [server, publicServer].filter(Boolean);
+        const closed = Promise.all(
+            servers.map((s) => new Promise((resolve) => s.close(resolve)))
         );
-        await new Promise((resolve) => server.close(resolve));
+        closeSockets();
+        for (const s of servers) {
+            s.closeIdleConnections();
+        }
+        const grace = setTimeout(() => {
+            closeSockets(true);
+            for (const s of servers) {
+                s.closeAllConnections();
+            }
+        }, 2000);
+        await closed;
+        clearTimeout(grace);
         releaseLock(handle.databasePath);
         handle.close();
         return 0;

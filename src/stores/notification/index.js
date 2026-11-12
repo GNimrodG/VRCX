@@ -15,10 +15,19 @@ import {
     parseLocation,
     parseNotificationDetails,
     removeFromArray,
+    replaceBioSymbols,
     sanitizeNotificationJson
 } from '../../shared/utils';
 import { getUserMemo } from '../../coordinators/memoCoordinator';
-import { friendRequest, instanceRequest, inventoryRequest, notificationRequest, queryRequest } from '../../api';
+import {
+    friendRequest,
+    instanceRequest,
+    inventoryRequest,
+    marketplaceRequest,
+    notificationRequest,
+    queryRequest
+} from '../../api';
+import { VRCHAT_STORE_IDS } from '../../shared/constants';
 import {
     getNotificationMessage,
     getUserIdFromNoty as getUserIdFromNotyBase,
@@ -26,6 +35,7 @@ import {
 } from '../../shared/utils/notificationMessage';
 import { database, dbVars } from '../../services/database';
 import { getNotificationCategory, getNotificationTs } from '../../shared/utils/notificationCategory';
+import { parseLogNotification } from '../../shared/utils/gameLogNotification';
 import { AppDebug } from '../../services/appConfig';
 import { createOverlayDispatch } from './overlayDispatch';
 import { useAdvancedSettingsStore } from '../settings/advanced';
@@ -52,6 +62,13 @@ import configRepository from '../../services/config';
 // Invite requests and replies, shown as persistent system notifications while
 // the game is closed (NotificationsSettings.persistentInviteToast).
 const persistentToastTypes = new Set(['requestInvite', 'inviteResponse', 'requestInviteResponse']);
+
+// Fork-only (CLAUDE.md §5): the game log as a second source for notifications.
+// Only the invite family is recovered from it; other types just get their delivery timing recorded.
+const GAME_LOG_RECOVERABLE_TYPES = new Set(['invite', 'requestInvite', 'inviteResponse', 'requestInviteResponse']);
+// A log line this fresh is a live miss worth a toast; older ones are recovered quietly.
+const GAME_LOG_LIVE_WINDOW_MS = 2 * 60 * 1000;
+const GAME_LOG_BACKFILL_DAYS = 14;
 
 export const useNotificationStore = defineStore('Notification', () => {
     const { t } = useI18n();
@@ -96,6 +113,15 @@ export const useNotificationStore = defineStore('Notification', () => {
         bundles: []
     });
     const shownBundleIds = new Set();
+    // Thanks for this buggy unredeemable bundle...
+    const ignoredBundleTemplateIds = new Set([
+        'invt_08e50f24-8807-4ec2-a0f9-9e008371280b' // October Open Beta Content Drop
+    ]);
+    const freeStoreItemDialog = ref({
+        visible: false,
+        listings: []
+    });
+    const shownFreeListingIds = new Set();
 
     const friendNotifications = computed(() =>
         notificationTable.value.data.filter((n) => getNotificationCategory(n.type) === 'friend')
@@ -138,6 +164,7 @@ export const useNotificationStore = defineStore('Notification', () => {
             isNotificationsLoading.value = false;
             notificationTable.value.data = [];
             inventoryBundleDialog.value.visible = false;
+            freeStoreItemDialog.value.visible = false;
             if (isLoggedIn) {
                 initNotifications();
             }
@@ -156,6 +183,17 @@ export const useNotificationStore = defineStore('Notification', () => {
         }
     );
 
+    watch(
+        () => notificationsSettingsStore.freeStoreItemNotifications,
+        (enabled) => {
+            if (!enabled) {
+                freeStoreItemDialog.value.visible = false;
+            } else if (watchState.isLoggedIn) {
+                checkFreeStoreItems();
+            }
+        }
+    );
+
     async function init() {
         notificationTable.value.filters[0].value = JSON.parse(
             await configRepository.getString('VRCX_notificationTableFilters', '[]')
@@ -170,6 +208,17 @@ export const useNotificationStore = defineStore('Notification', () => {
     function handleNotification(args) {
         args.ref = applyNotification(args.json);
         const { ref } = args;
+        if (!args.fromGameLog) {
+            database
+                .recordNotificationDelivery({
+                    id: ref.id,
+                    type: ref.type,
+                    senderUsername: ref.senderUsername,
+                    createdAt: ref.created_at,
+                    source: 'pipeline'
+                })
+                .catch(() => {});
+        }
         const array = notificationTable.value.data;
         const { length } = array;
         if (ref.seen) {
@@ -209,7 +258,7 @@ export const useNotificationStore = defineStore('Notification', () => {
                 sharedFeedStore.addEntry(ref);
             }
             if (matchesNotificationTypeFilter && !isExcludedType) {
-                uiStore.notifyMenu('notification');
+                uiStore.notifyMenu('notification', ref.type);
             }
         }
         notificationTable.value.data.push(ref);
@@ -218,6 +267,78 @@ export const useNotificationStore = defineStore('Notification', () => {
             return;
         }
         D.incomingRequest = true;
+    }
+
+    /**
+     * A `notification` game-log entry: the game received this notification. Records when, and — for the invite
+     * family — recovers it if the pipeline never delivered it (server logged out, pipeline down, …). Idempotent:
+     * keyed on the notification id, so replaying the same log any number of times changes nothing.
+     *
+     * @param {{ dt: string; json: string }} gameLog
+     */
+    async function handleGameLogNotification(gameLog) {
+        if (!watchState.isLoggedIn) {
+            return; // the post-login backfill picks these up
+        }
+        const json = parseLogNotification(gameLog.json);
+        if (!json) {
+            return;
+        }
+        const alreadyKnown = () => notificationTable.value.data.some((n) => n.id === json.id);
+        try {
+            database
+                .recordNotificationDelivery({
+                    id: json.id,
+                    type: json.type,
+                    senderUsername: json.senderUsername,
+                    createdAt: json.created_at,
+                    source: 'log',
+                    at: gameLog.dt
+                })
+                .catch(() => {});
+            if (
+                !GAME_LOG_RECOVERABLE_TYPES.has(json.type) ||
+                json.senderUserId === userStore.currentUser.id ||
+                alreadyKnown() ||
+                (await database.hasNotification(json.id)) ||
+                alreadyKnown() // the pipeline may have delivered it while we awaited the database
+            ) {
+                return;
+            }
+            console.warn('Recovered a notification the pipeline never delivered, from the game log:', json);
+            if (Date.now() - Date.parse(gameLog.dt) < GAME_LOG_LIVE_WINDOW_MS) {
+                handleNotification({ json, fromGameLog: true });
+                return;
+            }
+            const ref = applyNotification(json);
+            unseenNotifications.value.push(ref.id);
+            database.addNotificationToDatabase(ref);
+            notificationTable.value.data.push(ref);
+            uiStore.notifyMenu('notification', ref.type);
+        } catch (err) {
+            console.error('Failed to process a game log notification:', err);
+        }
+    }
+
+    /**
+     * Replays the notifications in the local game logs (the last {@link GAME_LOG_BACKFILL_DAYS} days) after login.
+     * Needed on top of the live path because the log watcher skips anything older than the last game-log database
+     * entry, which a notification received while the pipeline was down usually is. Desktop clients only: the
+     * browser has no game log.
+     */
+    async function backfillNotificationsFromGameLog() {
+        if (!(LINUX || WINDOWS)) {
+            return;
+        }
+        try {
+            const since = new Date(Date.now() - GAME_LOG_BACKFILL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+            const lines = await LogWatcher.GetNotificationLog(since);
+            for (const [, dt, , data] of lines) {
+                await handleGameLogNotification({ dt, json: data });
+            }
+        } catch (err) {
+            console.error('Failed to backfill notifications from the game log:', err);
+        }
     }
 
     /**
@@ -586,7 +707,7 @@ export const useNotificationStore = defineStore('Notification', () => {
             notificationTable.value.filters[0].value.length === 0 ||
             notificationTable.value.filters[0].value.includes(ref.type);
         if (isNotificationInitReady && matchesNotificationTypeFilter) {
-            uiStore.notifyMenu('notification');
+            uiStore.notifyMenu('notification', ref.type);
         }
         database.addNotificationV2ToDatabase(ref);
         notificationTable.value.data.push(ref);
@@ -1080,6 +1201,7 @@ export const useNotificationStore = defineStore('Notification', () => {
         tableData.splice(dbVars.maxTableSize);
         notificationTable.value.data = tableData;
         refreshNotifications();
+        backfillNotificationsFromGameLog();
     }
 
     async function checkInventoryBundles() {
@@ -1099,7 +1221,9 @@ export const useNotificationStore = defineStore('Notification', () => {
             console.error('Failed to check inventory bundles:', err);
             return;
         }
-        const newBundles = bundles.filter((item) => !shownBundleIds.has(item.id));
+        const newBundles = bundles.filter(
+            (item) => !shownBundleIds.has(item.id) && !ignoredBundleTemplateIds.has(item.templateId)
+        );
         if (newBundles.length === 0) {
             return;
         }
@@ -1111,6 +1235,96 @@ export const useNotificationStore = defineStore('Notification', () => {
             dialog.bundles.push(...newBundles);
         } else {
             dialog.bundles = newBundles;
+        }
+        dialog.visible = true;
+    }
+
+    function getEffectiveListingPrice(listing) {
+        if (userStore.isLocalUserVrcPlusSupporter && listing.vrcPlusDiscountPrice != null) {
+            return listing.vrcPlusDiscountPrice;
+        }
+        return listing.priceTokens;
+    }
+
+    function isListingOwned(listing) {
+        if (userStore.ownedListingIds.has(listing.id)) {
+            return true;
+        }
+        const productIds = listing.productIds ?? [];
+        return productIds.length > 0 && productIds.every((id) => userStore.ownedProductIds.has(id));
+    }
+
+    function isListingInBundle(listing, listings) {
+        const productIds = listing.productIds ?? [];
+        if (productIds.length === 0) {
+            return false;
+        }
+        for (const other of listings.values()) {
+            const bundleProductIds = other.productIds ?? [];
+            if (
+                other.id !== listing.id &&
+                bundleProductIds.length > productIds.length &&
+                productIds.every((id) => bundleProductIds.includes(id))
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    async function checkFreeStoreItems() {
+        if (!notificationsSettingsStore.freeStoreItemNotifications) {
+            return;
+        }
+        let shelves;
+        try {
+            const [results] = await Promise.all([
+                Promise.all(
+                    VRCHAT_STORE_IDS.map((storeId) =>
+                        marketplaceRequest.getStoreShelves({
+                            storeId,
+                            fetch: 'public',
+                            hydrateListings: true
+                        })
+                    )
+                ),
+                userStore.getAllProductPurchases()
+            ]);
+            shelves = results.flatMap((args) => args.json ?? []);
+        } catch (err) {
+            console.error('Failed to check free store items:', err);
+            return;
+        }
+        const freeListings = new Map();
+        for (const shelf of shelves) {
+            for (const listing of shelf.listings ?? []) {
+                if (
+                    listing.active &&
+                    !getEffectiveListingPrice(listing) &&
+                    !isListingOwned(listing) &&
+                    !shownFreeListingIds.has(listing.id)
+                ) {
+                    freeListings.set(listing.id, {
+                        ...listing,
+                        displayName: replaceBioSymbols(listing.displayName)
+                    });
+                }
+            }
+        }
+        for (const listing of freeListings.values()) {
+            shownFreeListingIds.add(listing.id);
+        }
+        const newListings = Array.from(freeListings.values()).filter(
+            (listing) => !isListingInBundle(listing, freeListings)
+        );
+        if (newListings.length === 0) {
+            return;
+        }
+        const dialog = freeStoreItemDialog.value;
+        if (dialog.visible) {
+            dialog.listings.push(...newListings);
+        } else {
+            dialog.listings = newListings;
         }
         dialog.visible = true;
     }
@@ -1347,11 +1561,13 @@ export const useNotificationStore = defineStore('Notification', () => {
         unseenNotifications,
         isNotificationsLoading,
         inventoryBundleDialog,
+        freeStoreItemDialog,
 
         initNotifications,
         expireNotification,
         refreshNotifications,
         checkInventoryBundles,
+        checkFreeStoreItems,
         queueNotificationNoty,
         playNoty,
         queueGameLogNoty,
@@ -1389,6 +1605,7 @@ export const useNotificationStore = defineStore('Notification', () => {
         recentOtherNotifications,
         hasUnseenNotifications,
         getNotificationCategory,
+        handleGameLogNotification,
         isNotificationExpired,
         openNotificationLink,
         queueMarkAsSeen,

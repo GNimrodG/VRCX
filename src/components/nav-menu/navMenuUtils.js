@@ -167,8 +167,19 @@ export function getFirstNavRoute(layout, definitionMap) {
  * @returns {boolean}
  */
 export function isEntryNotified(entry, notifiedMenus) {
-    if (!entry) {
-        return false;
+    return getEntryNotifiedMenus(entry, notifiedMenus).length > 0;
+}
+
+/**
+ * The notified menu keys that apply to a navigation entry.
+ *
+ * @param {object} entry - Navigation entry object
+ * @param {string[]} notifiedMenus - List of menu keys with notifications
+ * @returns {string[]}
+ */
+export function getEntryNotifiedMenus(entry, notifiedMenus) {
+    if (!entry || !Array.isArray(notifiedMenus)) {
+        return [];
     }
     const targets = [];
     if (entry.index) {
@@ -183,8 +194,5 @@ export function isEntryNotified(entry, notifiedMenus) {
             targets.push(lastSegment);
         }
     }
-    if (!Array.isArray(notifiedMenus)) {
-        return false;
-    }
-    return targets.some((key) => notifiedMenus.includes(key));
+    return targets.filter((key, i) => targets.indexOf(key) === i && notifiedMenus.includes(key));
 }

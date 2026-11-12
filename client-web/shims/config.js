@@ -41,6 +41,24 @@ class ClientConfigRepository {
 
     async init() {}
 
+    /**
+     * Applies a change another client made (settings sync,
+     * `client-web/shims/config-sync.js`), without writing anything back.
+     *
+     * @param {string} key
+     * @param {boolean} removed
+     * @param {boolean} hasValue Whether `value` is the new value (it is left out for very large ones)
+     * @param {any} value
+     */
+    applyRemote(key, removed, hasValue, value) {
+        this.#variants.delete(key);
+        if (removed || !hasValue) {
+            this.#written.delete(key);
+            return;
+        }
+        this.#written.set(key, value);
+    }
+
     async remove(key) {
         this.#variants.delete(key);
         this.#written.delete(key);

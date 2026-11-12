@@ -269,6 +269,58 @@ export async function getAvatarName(imageUrl) {
 }
 
 /**
+ * Validates an external avatar-database response and returns its parsed JSON.
+ * A non-200 status or a non-JSON body (a Cloudflare block page, say) throws an
+ * Error whose message is short enough for a toast; the full URL, status and body
+ * excerpt ride along on `err.details` for the console.
+ *
+ * @param {{ status: number; data: string }} response
+ * @param {string} url
+ * @returns {object}
+ */
+function parseProviderResponse(response, url) {
+    let json;
+    try {
+        json = JSON.parse(response.data);
+    } catch {
+        json = undefined;
+    }
+    if (response.status === 200 && json !== undefined && typeof json === 'object') {
+        return json;
+    }
+    let host = url;
+    try {
+        host = new URL(url).hostname;
+    } catch {
+        // not a URL: show it as given
+    }
+    let reason = 'returned an unexpected response';
+    if (response.status === 403) {
+        reason = 'blocked the request (HTTP 403)';
+    } else if (response.status === 429) {
+        reason = 'rate limited the request (HTTP 429)';
+    } else if (response.status !== 200) {
+        reason = `returned HTTP ${response.status}`;
+    }
+    const err = new Error(`${host} ${reason}`);
+    err.details = { url, status: response.status, body: String(response.data ?? '').slice(0, 500) };
+    throw err;
+}
+
+/**
+ * Reports a failed external lookup: a short toast for the user, the full
+ * reason (URL, status, body excerpt) in the console.
+ *
+ * @param {string} what
+ * @param {unknown} err
+ */
+function reportProviderFailure(what, err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(`${what}: ${reason}`, err?.details ?? err);
+    toast.error(`${what}: ${reason}`);
+}
+
+/**
  * @param type
  * @param search
  */
@@ -290,34 +342,28 @@ export async function lookupAvatars(type, search) {
                     'VRCX-ID': vrcxUpdaterStore.vrcxId
                 }
             });
-            const json = JSON.parse(response.data);
+            const json = parseProviderResponse(response, url);
             logWebRequest('[EXTERNAL GET]', url, `(${response.status})`, json);
-            if (response.status === 200 && typeof json === 'object') {
-                json.forEach((avatar) => {
-                    if (!avatars.has(avatar.Id)) {
-                        const ref = {
-                            authorId: '',
-                            authorName: '',
-                            name: '',
-                            description: '',
-                            id: '',
-                            imageUrl: '',
-                            thumbnailImageUrl: '',
-                            created_at: '0001-01-01T00:00:00.0000000Z',
-                            updated_at: '0001-01-01T00:00:00.0000000Z',
-                            releaseStatus: 'public',
-                            ...avatar
-                        };
-                        avatars.set(ref.id, ref);
-                    }
-                });
-            } else {
-                throw new Error(`Error: ${response.data}`);
-            }
+            json.forEach((avatar) => {
+                if (!avatars.has(avatar.Id)) {
+                    const ref = {
+                        authorId: '',
+                        authorName: '',
+                        name: '',
+                        description: '',
+                        id: '',
+                        imageUrl: '',
+                        thumbnailImageUrl: '',
+                        created_at: '0001-01-01T00:00:00.0000000Z',
+                        updated_at: '0001-01-01T00:00:00.0000000Z',
+                        releaseStatus: 'public',
+                        ...avatar
+                    };
+                    avatars.set(ref.id, ref);
+                }
+            });
         } catch (err) {
-            const msg = `Avatar search failed for ${search} with ${avatarProviderStore.avatarRemoteDatabaseProvider}\n${err}`;
-            console.error(msg);
-            toast.error(msg);
+            reportProviderFailure('Avatar search failed', err);
         }
     } else if (type === 'authorId') {
         const length = avatarProviderStore.avatarRemoteDatabaseProviderList.length;
@@ -423,32 +469,26 @@ async function lookupAvatarsByAuthor(providerUrl, authorId) {
                 'VRCX-ID': vrcxUpdaterStore.vrcxId
             }
         });
-        const json = JSON.parse(response.data);
+        const json = parseProviderResponse(response, url);
         logWebRequest('[EXTERNAL GET]', url, `(${response.status})`, json);
-        if (response.status === 200 && typeof json === 'object') {
-            json.forEach((avatar) => {
-                const ref = {
-                    authorId: '',
-                    authorName: '',
-                    name: '',
-                    description: '',
-                    id: '',
-                    imageUrl: '',
-                    thumbnailImageUrl: '',
-                    created_at: '0001-01-01T00:00:00.0000000Z',
-                    updated_at: '0001-01-01T00:00:00.0000000Z',
-                    releaseStatus: 'public',
-                    ...avatar
-                };
-                avatars.push(ref);
-            });
-        } else {
-            throw new Error(`Error: ${response.data}`);
-        }
+        json.forEach((avatar) => {
+            const ref = {
+                authorId: '',
+                authorName: '',
+                name: '',
+                description: '',
+                id: '',
+                imageUrl: '',
+                thumbnailImageUrl: '',
+                created_at: '0001-01-01T00:00:00.0000000Z',
+                updated_at: '0001-01-01T00:00:00.0000000Z',
+                releaseStatus: 'public',
+                ...avatar
+            };
+            avatars.push(ref);
+        });
     } catch (err) {
-        const msg = `Avatar lookup failed for ${authorId} with ${url}\n${err}`;
-        console.error(msg);
-        toast.error(msg);
+        reportProviderFailure('Avatar lookup failed', err);
     }
     return avatars;
 }

@@ -33,6 +33,7 @@ jobs:
     test:
         name: Server tests
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         steps:
             - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
             - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -40,13 +41,15 @@ jobs:
               with:
                   node-version: 24
                   cache: pnpm
-            - run: pnpm install --frozen-lockfile
+            - uses: ./.github/actions/install-deps
             - name: Check server/root dependency drift
               run: node server/scripts/check-deps.js
             - run: pnpm run test:server
 
     build:
         name: Build and publish
+        # Multi-arch image build+push, normally ~4 min.
+        timeout-minutes: 30
         needs: test
         runs-on: ubuntu-latest
         permissions:

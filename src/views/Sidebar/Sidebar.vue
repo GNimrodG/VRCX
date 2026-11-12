@@ -37,7 +37,10 @@
                                 :ariaLabel="t('side_panel.notification_center.title')"
                                 @click="isNotificationCenterOpen = !isNotificationCenterOpen">
                                 <Bell />
-                                <span class="absolute top-1 right-1.25 size-1.5 rounded-full bg-red-500" />
+                                <span
+                                    v-if="bellDotColor"
+                                    class="absolute top-1 right-1.25 size-1.5 rounded-full"
+                                    :style="{ backgroundColor: bellDotColor }" />
                             </Button>
                         </TooltipWrapper>
                     </ContextMenuTrigger>
@@ -87,6 +90,13 @@
                                     :model-value="isHideFriendsInSameInstance"
                                     :ariaLabel="t('side_panel.settings.hide_friends_in_same_instance')"
                                     @update:modelValue="setIsHideFriendsInSameInstance" />
+                            </Field>
+                            <Field orientation="horizontal">
+                                <FieldLabel>{{ t('side_panel.settings.show_status_instead_of_private') }}</FieldLabel>
+                                <Switch
+                                    :model-value="isShowStatusInsteadOfPrivate"
+                                    :ariaLabel="t('side_panel.settings.show_status_instead_of_private')"
+                                    @update:modelValue="setIsShowStatusInsteadOfPrivate" />
                             </Field>
                             <Field v-if="isSidebarGroupByInstance" orientation="horizontal">
                                 <FieldLabel>{{ t('side_panel.settings.same_instance_above_favorites') }}</FieldLabel>
@@ -357,7 +367,8 @@
         useFavoriteStore,
         useFriendStore,
         useGroupStore,
-        useNotificationStore
+        useNotificationStore,
+        useUiStore
     } from '../../stores';
     import { runRefreshFriendsListFlow } from '../../coordinators/friendSyncCoordinator';
     import { normalizeFavoriteGroupsChange, resolveFavoriteGroups } from './sidebarSettingsUtils';
@@ -372,7 +383,28 @@
     const { friends, isRefreshFriendsLoading, onlineFriendCount } = storeToRefs(useFriendStore());
     const { groupInstances } = storeToRefs(useGroupStore());
     const notificationStore = useNotificationStore();
-    const { isNotificationCenterOpen, hasUnseenNotifications } = storeToRefs(notificationStore);
+    const {
+        isNotificationCenterOpen,
+        hasUnseenNotifications,
+        unseenFriendNotifications,
+        unseenGroupNotifications,
+        unseenOtherNotifications
+    } = storeToRefs(notificationStore);
+    const uiStore = useUiStore();
+    // Bell dot color follows the tray dot rules for the types actually unseen.
+    // Unseen ids not in the loaded table (type unknown) count as the fallback.
+    const bellDotColor = computed(() => {
+        const types = [
+            ...unseenFriendNotifications.value,
+            ...unseenGroupNotifications.value,
+            ...unseenOtherNotifications.value
+        ].map((n) => n.type);
+        const known = types.length;
+        if (notificationStore.unseenNotifications.length > known) {
+            types.push(undefined);
+        }
+        return uiStore.getTypesDotColor(types);
+    });
     const quickSearchStore = useQuickSearchStore();
     const { t } = useI18n();
 
@@ -398,6 +430,7 @@
         sidebarSortMethod3,
         isSidebarGroupByInstance,
         isHideFriendsInSameInstance,
+        isShowStatusInsteadOfPrivate,
         isSameInstanceAboveFavorites,
         isSidebarDivideByFriendGroup,
         sidebarFavoriteGroups,
@@ -409,6 +442,7 @@
         setSidebarSortMethod3,
         setIsSidebarGroupByInstance,
         setIsHideFriendsInSameInstance,
+        setIsShowStatusInsteadOfPrivate,
         setIsSameInstanceAboveFavorites,
         setIsSidebarDivideByFriendGroup,
         setSidebarFavoriteGroups,

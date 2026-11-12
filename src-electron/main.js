@@ -17,6 +17,9 @@ const fs = require('fs');
 const https = require('https');
 const os = require('os');
 const { WebSocket: WsClient } = require('ws');
+const { applyApiKeysFrameOverride } = require('./apiKeysFrame');
+const { verifyWithCustomCa } = require('./customCaTrust');
+const { refreshWithRetry, isTransientStatus } = require('./sessionRetry');
 
 //app.disableHardwareAcceleration();
 
@@ -93,8 +96,8 @@ let tray = null;
 /** @type {Electron.NativeImage | string} */
 let trayIcon = null;
 
-/** @type {Electron.NativeImage | string} */
-let trayIconNotify = null;
+/** @type {Map<string, Electron.NativeImage | string>} */
+const trayIconCache = new Map();
 
 // Get launch arguments
 let appImagePath = process.env.APPIMAGE;
@@ -177,11 +180,11 @@ function getRid() {
 
 try {
     if (app.isPackaged) {
-        require(path.join(rootDir, 'build/Electron/VRCX-Electron.cjs'));
+        require(path.join(rootDir, 'build/Electron/VRCX-Headless.cjs'));
     } else {
         // if debugging, we need to get from the platform dir ourselves
         const rid = getRid();
-        require(path.join(rootDir, `build/Electron/${rid}/VRCX-Electron.cjs`));
+        require(path.join(rootDir, `build/Electron/${rid}/VRCX-Headless.cjs`));
     }
 } catch (err) {
     // node-api-dotnet throws a cryptic error when no .NET runtime is installed.
@@ -276,6 +279,12 @@ let agentReconnectTimer = null;
  * @type {import('ws').WebSocket | null}
  */
 let streamSocket = null;
+/**
+ * Names this app instance to the server (`X-Vrcx-Client` on RPC calls,
+ * `?client=` on the stream socket) so settings sync does not echo this
+ * instance's own config writes back to it. See `server/src/config-sync.js`.
+ */
+const rpcClientId = require('crypto').randomUUID();
 /**
  * Updated opportunistically by every `vrcx-rpc` call and a periodic
  * health-check timer; pushed to the renderer on change (not every tick) so
@@ -525,7 +534,7 @@ ipcMain.on('vrcx-stream-connect', () => {
     if (!serverUrl || !serverToken) {
         return;
     }
-    const wsUrl = `${serverUrl.replace(/^http/, 'ws')}/api/stream`;
+    const wsUrl = `${serverUrl.replace(/^http/, 'ws')}/api/stream?client=${rpcClientId}`;
     const ws = new WsClient(wsUrl, {
         headers: { Authorization: `Bearer ${serverToken}` }
     });
@@ -576,23 +585,30 @@ async function refreshServerSession() {
     if (!serverUrl || !serverToken) {
         return false;
     }
-    try {
-        const { status: httpStatus, body } = await fetchJson(`${serverUrl}/api/session/refresh`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${serverToken}`
-            },
-            body: '{}'
-        });
-        if (httpStatus !== 200 || !body?.ok || !body.token) {
-            return false;
+    // Retried while the server is unreachable (autostart can beat the
+    // network); a server that answers and refuses the token ends it at once.
+    return refreshWithRetry(async () => {
+        try {
+            const { status: httpStatus, body } = await fetchJson(`${serverUrl}/api/session/refresh`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${serverToken}`
+                },
+                body: '{}'
+            });
+            if (isTransientStatus(httpStatus)) {
+                return 'unreachable';
+            }
+            if (httpStatus !== 200 || !body?.ok || !body.token) {
+                return 'rejected';
+            }
+            completeSession(serverUrl, body.token);
+            return 'ok';
+        } catch {
+            return 'unreachable';
         }
-        completeSession(serverUrl, body.token);
-        return true;
-    } catch {
-        return false;
-    }
+    });
 }
 
 /**
@@ -968,7 +984,8 @@ ipcMain.handle('vrcx-rpc', async (_event, target, method, args) => {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${serverToken}`
+                Authorization: `Bearer ${serverToken}`,
+                'X-Vrcx-Client': rpcClientId
             },
             body: JSON.stringify({ target, method, args })
         });
@@ -1278,7 +1295,22 @@ function restartApp() {
     }
 }
 
-ipcMain.handle('app:restart', () => {
+ipcMain.handle('app:restart', (_event, options) => {
+    // After the Settings page downloaded an update the new build is already on
+    // disk (AppImage) or staged as update.exe (Windows); a plain relaunch left
+    // the app closed because app.relaunch() never fires once the force-exit
+    // watchdog SIGKILLs a hung teardown, and the Windows installer doesn't
+    // relaunch on its own. Use the same detached hand-off as the startup updater.
+    if (options?.isUpgrade) {
+        if (process.platform === 'linux' && appImagePath) {
+            scheduleAppImageRelaunchAfterUpdate();
+            return;
+        }
+        if (process.platform === 'win32') {
+            scheduleWindowsInstallAfterUpdate();
+            return;
+        }
+    }
     restartApp();
 });
 
@@ -1328,8 +1360,8 @@ ipcMain.handle('app:getCanSelfUpdate', () => {
     return false;
 });
 
-ipcMain.handle('app:setTrayIconNotification', (_event, notify) => {
-    setTrayIconNotification(notify);
+ipcMain.handle('app:setTrayIconNotification', (_event, color) => {
+    setTrayIconNotification(color);
 });
 
 function tryRelaunchWithArgs(args) {
@@ -1514,6 +1546,79 @@ function compareForkVersions(a, b) {
         }
     }
     return 0;
+}
+
+/**
+ * Relaunches the Linux AppImage after `Update.DownloadUpdate` has already
+ * swapped the new one into place, then exits. A detached shell does the launch
+ * rather than `app.relaunch()`, which only fires as a side effect of Electron's
+ * own quit sequence finishing: when teardown hangs and
+ * `scheduleForceExitFallback()`'s watchdog has to `SIGKILL` us, it silently
+ * never happens (see `checkAndInstallForkUpdateInner()`'s comments for the live
+ * finding). Shared by the pre-window updater and the Settings page's update
+ * button (`app:restart` with `isUpgrade`), which used to go through
+ * `restartApp()` and so just closed the app.
+ */
+function scheduleAppImageRelaunchAfterUpdate() {
+    const relaunchDelaySeconds = 5;
+    const relaunchArgs = ['--appimage-extract-and-run'];
+    if (!x11) {
+        relaunchArgs.push('--ozone-platform-hint=auto');
+    }
+    relaunchArgs.push('--post-update');
+    const quoteForShell = (value) => `'${value.replace(/'/g, `'\\''`)}'`;
+    const relaunchCommand = [appImagePath, ...relaunchArgs].map(quoteForShell).join(' ');
+    logFork(`Scheduling relaunch of ${appImagePath} in ${relaunchDelaySeconds}s (${relaunchArgs.join(' ')})`);
+    const launcher = spawn('sh', ['-c', `sleep ${relaunchDelaySeconds}; exec ${relaunchCommand}`], {
+        detached: true,
+        stdio: 'ignore'
+    });
+    logFork(`Relaunch shell spawn returned, pid=${launcher.pid}`);
+    launcher.on('error', (err) => logFork(`Relaunch shell spawn error: ${err?.message ?? err}`));
+    launcher.unref();
+    scheduleForceExitFallback();
+    app.exit(0);
+}
+
+/**
+ * Windows counterpart: hands the install-then-relaunch chain to a detached
+ * `apply-update.bat`, then exits. See `checkAndInstallForkUpdateInner()`'s
+ * comments for why it is a script that ignores the installer's exit code.
+ */
+function scheduleWindowsInstallAfterUpdate() {
+    const updateExePath = path.join(getVRCXPath(), 'update.exe');
+    const execPathBeforeUpdate = process.execPath;
+    const batchPath = path.join(getVRCXPath(), 'apply-update.bat');
+    const logPath = path.join(getVRCXPath(), 'apply-update.log');
+    const batchLines = [
+        '@echo off',
+        `echo [%date% %time%] scheduled, waiting for old process to exit > "${logPath}"`,
+        'timeout /t 3 /nobreak >nul',
+        `echo [%date% %time%] running installer >> "${logPath}"`,
+        `"${updateExePath}"`,
+        `echo [%date% %time%] installer exit code %errorlevel% >> "${logPath}"`,
+        // The installer runs from update.exe in place, so nothing else removes it.
+        // Left behind, the relaunched app's Update.Check() (Dotnet/Program.cs Init)
+        // moves it to VRCX_Setup.exe and re-runs the installer, then Environment.Exit(0)s
+        // before the app ever opens: the "installer ran twice, app never launched" bug.
+        `del /f /q "${updateExePath}"`,
+        `echo [%date% %time%] removed update.exe >> "${logPath}"`,
+        `start "" "${execPathBeforeUpdate}"`,
+        `echo [%date% %time%] relaunch issued >> "${logPath}"`
+    ];
+    fs.writeFileSync(batchPath, batchLines.join('\r\n'));
+    logFork(`Wrote ${batchPath}, spawning cmd.exe`);
+    const launcher = spawn('cmd.exe', ['/c', batchPath], {
+        detached: true,
+        stdio: 'ignore'
+    });
+    logFork(`cmd.exe spawn returned, pid=${launcher.pid}`);
+    // Fire-and-forget from here — an unhandled 'error' on this emitter
+    // would otherwise crash the process we're about to exit anyway.
+    launcher.on('error', (err) => logFork(`cmd.exe spawn error: ${err?.message ?? err}`));
+    launcher.unref();
+    logFork('Exiting now');
+    app.exit(0);
 }
 
 /**
@@ -1708,24 +1813,7 @@ async function checkAndInstallForkUpdateInner() {
         // process's own `tryRelaunchWithArgs()` guard
         // (`args.includes('--ozone-platform-hint=auto')`) then already finds
         // itself relaunched.
-        const relaunchDelaySeconds = 5;
-        const relaunchArgs = ['--appimage-extract-and-run'];
-        if (!x11) {
-            relaunchArgs.push('--ozone-platform-hint=auto');
-        }
-        relaunchArgs.push('--post-update');
-        const quoteForShell = (value) => `'${value.replace(/'/g, `'\\''`)}'`;
-        const relaunchCommand = [appImagePath, ...relaunchArgs].map(quoteForShell).join(' ');
-        logFork(`Scheduling relaunch of ${appImagePath} in ${relaunchDelaySeconds}s (${relaunchArgs.join(' ')})`);
-        const launcher = spawn('sh', ['-c', `sleep ${relaunchDelaySeconds}; exec ${relaunchCommand}`], {
-            detached: true,
-            stdio: 'ignore'
-        });
-        logFork(`Relaunch shell spawn returned, pid=${launcher.pid}`);
-        launcher.on('error', (err) => logFork(`Relaunch shell spawn error: ${err?.message ?? err}`));
-        launcher.unref();
-        scheduleForceExitFallback();
-        app.exit(0);
+        scheduleAppImageRelaunchAfterUpdate();
         return true;
     }
     // Found live (2026-08-24): letting `app.relaunch()` hand off to
@@ -1760,33 +1848,7 @@ async function checkAndInstallForkUpdateInner() {
     // for the final step specifically so the batch script (and therefore
     // this whole detached process) doesn't sit there waiting for the
     // newly-relaunched app to exit before it's allowed to finish.
-    const updateExePath = path.join(getVRCXPath(), 'update.exe');
-    const execPathBeforeUpdate = process.execPath;
-    const batchPath = path.join(getVRCXPath(), 'apply-update.bat');
-    const logPath = path.join(getVRCXPath(), 'apply-update.log');
-    const batchLines = [
-        '@echo off',
-        `echo [%date% %time%] scheduled, waiting for old process to exit > "${logPath}"`,
-        'timeout /t 3 /nobreak >nul',
-        `echo [%date% %time%] running installer >> "${logPath}"`,
-        `"${updateExePath}"`,
-        `echo [%date% %time%] installer exit code %errorlevel% >> "${logPath}"`,
-        `start "" "${execPathBeforeUpdate}"`,
-        `echo [%date% %time%] relaunch issued >> "${logPath}"`
-    ];
-    fs.writeFileSync(batchPath, batchLines.join('\r\n'));
-    logFork(`Wrote ${batchPath}, spawning cmd.exe`);
-    const launcher = spawn('cmd.exe', ['/c', batchPath], {
-        detached: true,
-        stdio: 'ignore'
-    });
-    logFork(`cmd.exe spawn returned, pid=${launcher.pid}`);
-    // Fire-and-forget from here — an unhandled 'error' on this emitter
-    // would otherwise crash the process we're about to exit anyway.
-    launcher.on('error', (err) => logFork(`cmd.exe spawn error: ${err?.message ?? err}`));
-    launcher.unref();
-    logFork('Exiting now');
-    app.exit(0);
+    scheduleWindowsInstallAfterUpdate();
     return true;
 }
 
@@ -1796,7 +1858,34 @@ async function checkAndInstallForkUpdateInner() {
  * successful `vrcx-connect-server` call (from the setup screen) can reach
  * it.
  */
+let apiKeysFrameOverrideInstalled = false;
+
+/**
+ * Lets the in-app "Manage API keys" dialog frame the server's key page; see
+ * `apiKeysFrame.js` for exactly what is relaxed and why that is safe.
+ */
+function installApiKeysFrameOverride() {
+    if (apiKeysFrameOverrideInstalled) {
+        return;
+    }
+    apiKeysFrameOverrideInstalled = true;
+    mainWindow.webContents.session.webRequest.onHeadersReceived(
+        { urls: ['http://*/admin/api-keys*', 'https://*/admin/api-keys*'] },
+        (details, callback) => callback(applyApiKeysFrameOverride(details, serverUrl))
+    );
+}
+
 function loadRealApp() {
+    installApiKeysFrameOverride();
+    // The imported CA is otherwise trusted by Node only; Chromium needs it for
+    // the API-keys iframe (see customCaTrust.js).
+    mainWindow.webContents.session.setCertificateVerifyProc((request, callback) =>
+        callback(
+            verifyWithCustomCa(request, serverUrl, () =>
+                fs.existsSync(customCaCertPath) ? fs.readFileSync(customCaCertPath, 'utf8') : null
+            )
+        )
+    );
     const indexPath = path.join(rootDir, 'build/html/index.html');
     mainWindow.loadFile(indexPath);
     if (debug) {
@@ -2060,23 +2149,41 @@ function destroyTray() {
     }
 }
 
-function createTray() {
-    if (process.platform === 'darwin') {
-        const image = nativeImage.createFromPath(path.join(rootDir, 'images/VRCX.png'));
-        trayIcon = image.resize({ width: 16, height: 16 });
-
-        const imageNotify = nativeImage.createFromPath(path.join(rootDir, 'images/VRCX_notify.png'));
-        trayIconNotify = imageNotify.resize({ width: 16, height: 16 });
-    } else if (process.platform === 'linux') {
-        const image = nativeImage.createFromPath(path.join(rootDir, 'images/VRCX.png'));
-        trayIcon = image.resize({ width: 64, height: 64 });
-
-        const imageNotify = nativeImage.createFromPath(path.join(rootDir, 'images/VRCX_notify.png'));
-        trayIconNotify = imageNotify.resize({ width: 64, height: 64 });
-    } else {
-        trayIcon = path.join(rootDir, 'images/VRCX.ico');
-        trayIconNotify = path.join(rootDir, 'images/VRCX_notify.ico');
+/**
+ * Tray icon for a dot color (`null` = no dot). Colors come from the renderer's
+ * tray dot rules (`src/shared/constants/trayDot.js`); `red` is the original
+ * `VRCX_notify.*`, the rest are `VRCX_notify_<color>.*`
+ * (`scripts/generate-tray-icons.sh`).
+ *
+ * @param {string | null} color
+ */
+function getTrayIconForColor(color) {
+    const base = !color ? 'VRCX' : color === 'red' ? 'VRCX_notify' : `VRCX_notify_${color}`;
+    if (!/^[A-Za-z_]+$/.test(base)) {
+        return trayIcon;
     }
+    const cached = trayIconCache.get(base);
+    if (cached) {
+        return cached;
+    }
+    let icon;
+    if (process.platform === 'win32') {
+        icon = path.join(rootDir, `images/${base}.ico`);
+    } else {
+        const size = process.platform === 'darwin' ? 16 : 64;
+        const image = nativeImage.createFromPath(path.join(rootDir, `images/${base}.png`));
+        if (image.isEmpty()) {
+            // Unknown color / missing asset: better the plain red dot than no icon.
+            return base === 'VRCX' ? trayIcon : getTrayIconForColor('red');
+        }
+        icon = image.resize({ width: size, height: size });
+    }
+    trayIconCache.set(base, icon);
+    return icon;
+}
+
+function createTray() {
+    trayIcon = getTrayIconForColor(null);
     tray = new Tray(trayIcon);
     const contextMenu = Menu.buildFromTemplate([
         {
@@ -2111,11 +2218,13 @@ function createTray() {
 }
 
 /**
- * @param {Boolean} notify
+ * @param {string | boolean | null} color Dot color name, `null`/`false` for no
+ *   dot. `true` is the pre-color-rules protocol and means red.
  */
-function setTrayIconNotification(notify) {
+function setTrayIconNotification(color) {
     if (tray) {
-        tray.setImage(notify ? trayIconNotify : trayIcon);
+        const resolved = color === true ? 'red' : typeof color === 'string' ? color : null;
+        tray.setImage(getTrayIconForColor(resolved));
     }
 }
 

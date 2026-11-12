@@ -82,7 +82,7 @@ contextBridge.exposeInMainWorld('electron', {
     getClipboardText: () => ipcRenderer.invoke('app:getClipboardText'),
     getNoUpdater: () => ipcRenderer.invoke('app:getNoUpdater'),
     getCanSelfUpdate: () => ipcRenderer.invoke('app:getCanSelfUpdate'),
-    setTrayIconNotification: (notify) => ipcRenderer.invoke('app:setTrayIconNotification', notify),
+    setTrayIconNotification: (color) => ipcRenderer.invoke('app:setTrayIconNotification', color),
     setThemeSource: (source) => ipcRenderer.invoke('app:setThemeSource', source),
     onSystemThemeChanged: (callback) => registerManagedListener('systemThemeChanged', callback),
     openFileDialog: () => ipcRenderer.invoke('dialog:openFile'),
@@ -94,7 +94,7 @@ contextBridge.exposeInMainWorld('electron', {
     onBrowserBlur: (callback) => registerManagedListener('onBrowserBlur', callback),
     desktopNotification: (title, body, icon, persistent) =>
         ipcRenderer.invoke('notification:showNotification', title, body, icon, persistent),
-    restartApp: () => ipcRenderer.invoke('app:restart'),
+    restartApp: (isUpgrade = false) => ipcRenderer.invoke('app:restart', { isUpgrade }),
     getOverlayWindow: () => ipcRenderer.invoke('app:getOverlayWindow'),
     updateVr: (active, hmdOverlay, wristOverlay, menuButton, overlayHand) =>
         ipcRenderer.invoke('app:updateVr', active, hmdOverlay, wristOverlay, menuButton, overlayHand),

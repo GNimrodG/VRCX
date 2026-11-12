@@ -39,7 +39,7 @@ declare global {
             getClipboardText: () => Promise<string>;
             getNoUpdater: () => Promise<boolean>;
             getCanSelfUpdate: () => Promise<boolean>;
-            setTrayIconNotification: (notify: boolean) => Promise<void>;
+            setTrayIconNotification: (color: string | null) => Promise<void>;
             setThemeSource: (source: 'system' | 'light' | 'dark') => Promise<void>;
             onSystemThemeChanged: (Function: (event: any, isDark: boolean) => void) => () => void;
             openFileDialog: () => Promise<string>;
@@ -172,13 +172,14 @@ declare global {
         CopyImageToClipboard(path: string): Promise<void>;
         FlashWindow(): Promise<void>;
         SetUserAgent(): Promise<void>;
-        SetTrayIconNotification(notify: boolean): Promise<void>;
+        SetTrayIconNotification(color: string | null): Promise<void>;
         OpenCalendarFile(icsContent: string): Promise<void>;
 
         // Common Functions
         GetColourFromUserID(userId: string): Promise<number>;
         OpenLink(url: string): Promise<void>;
         OpenDiscordProfile(discordId: string): Promise<void>;
+        OpenSteamStorePage(appId: number): Promise<void>;
         GetLaunchCommand(): Promise<string>;
         IPCAnnounceStart(): Promise<void>;
         SendIpc(type: string, data: string): Promise<void>;

@@ -218,6 +218,7 @@
             "group_by_instance": "Group by Instance",
             "split_favorite_friends": "Show Favorite Groups",
             "hide_friends_in_same_instance": "Hide Grouped Friends",
+            "show_status_instead_of_private": "Show Status Instead of Private",
             "same_instance_above_favorites": "Prioritize Same Instance",
             "sort_primary": "Sort by",
             "sort_secondary": "Then by",
@@ -244,6 +245,12 @@
             "login": "Login",
             "register": "Register",
             "forgotPassword": "Forgot Password?",
+            "reset_password": {
+                "title": "Reset Password",
+                "description": "Enter the email address linked to your VRChat account and we'll send you a password recovery email.",
+                "email": "Email",
+                "send": "Send"
+            },
             "updater": "Updater",
             "proxy_settings": "Proxy Settings",
             "settings": "Settings",
@@ -259,6 +266,12 @@
             "language_detect": {
                 "title": "Language Detected",
                 "description": "Your system language appears to be {language}. Would you like to switch to it?"
+            },
+            "qr": {
+                "button": "Login with QR Code",
+                "hint": "Scan with a device signed in to VRChat, then approve the login.",
+                "cancel": "Cancel",
+                "failed": "QR login failed"
             }
         },
         "feed": {
@@ -355,6 +368,18 @@
                 "sort_name": "Sort by name",
                 "sort_update": "Sort by update",
                 "sort_created": "Sort by created"
+            },
+            "marketplace": {
+                "header": "Marketplace"
+            },
+            "store": {
+                "header": "VRChat Store",
+                "refresh_tooltip": "Refresh store",
+                "free": "Free",
+                "vrc_plus_price": "{price} with VRC+",
+                "credits": "{credits}V",
+                "buy": "Buy",
+                "owned": "Owned"
             },
             "group": {
                 "header": "Group"
@@ -722,6 +747,8 @@
                 "edit_invite_message_description": "Edit invite and invite response messages",
                 "moderation_reports": "My Reports",
                 "moderation_reports_description": "View and delete moderation reports you have submitted",
+                "purchase_history": "Purchase History",
+                "purchase_history_description": "View items you have purchased from the VRChat store and marketplace",
                 "info_push": "Info Push",
                 "info_push_description": "Browse VRChat info push announcements and content"
             }
@@ -735,6 +762,7 @@
                 "header": "Game Info",
                 "online_users": "Online Users",
                 "user_online": "{count} users online.",
+                "instances_active": "{count} active instances.",
                 "refresh": "Click to refresh"
             },
             "config_json": "Config JSON",
@@ -961,6 +989,40 @@
                     "table_page_sizes": "Table Page Sizes",
                     "table_page_sizes_error": "Page size must be a number between 1 and 1000",
                     "show_notification_icon_dot": "Tray Notification Dot",
+                    "tray_dot": {
+                        "header": "Notification Dot Colors",
+                        "description": "Choose which unseen items light the dot (tray icon, or tab icon in a browser) and in which color. When several are unseen at once, the color higher in the list wins. Shared by every client on this account; other open clients pick up changes the next time they load.",
+                        "disabled_hint": "The notification dot is switched off above, so these colors are not in use.",
+                        "fallback": "Everything else",
+                        "fallback_description": "Any type not assigned to a color below.",
+                        "priority": "Priority, highest first",
+                        "no_types": "No types assigned. Add some, or remove this color.",
+                        "add_color": "Add color",
+                        "add_type": "Add type",
+                        "assigned_elsewhere": "Currently in another color",
+                        "move_up": "Higher priority",
+                        "move_down": "Lower priority",
+                        "remove_color": "Remove color",
+                        "remove_type": "Back to everything else",
+                        "reset": "Reset to default",
+                        "off": "No dot",
+                        "colors": {
+                            "red": "Red",
+                            "orange": "Orange",
+                            "yellow": "Yellow",
+                            "green": "Green",
+                            "cyan": "Cyan",
+                            "blue": "Blue",
+                            "purple": "Purple"
+                        },
+                        "groups": {
+                            "friends": "Invites & requests",
+                            "friendLog": "Friend list changes",
+                            "groups": "Groups",
+                            "moderation": "Moderation",
+                            "system": "System"
+                        }
+                    },
                     "striped_data_table_mode": "Striped Tables",
                     "accessible_status_indicators": "Accessible Status Indicators",
                     "accessible_status_indicators_description": "Use shapes in addition to color to distinguish statuses.",
@@ -1052,8 +1114,14 @@
                     "busy_warning": "Notifications are disabled while your status is set to Do Not Disturb.",
                     "notification_filter": "Notification Filters",
                     "test_notification": "Send Test Notification",
-                    "inventory_bundle_notifications": "Inventory Bundle Notifications",
                     "test_message": "Test notification.",
+                    "inventory_notifications": {
+                        "header": "Inventory & Store",
+                        "inventory_bundle_notifications": "Unredeemed Bundles",
+                        "inventory_bundle_notifications_description": "Notify when a bundle in your inventory is ready to redeem.",
+                        "free_store_item_notifications": "Free Store Items",
+                        "free_store_item_notifications_description": "Notify when a new free item is available in the store."
+                    },
                     "steamvr_notifications": {
                         "header": "SteamVR Notifications",
                         "steamvr_overlay": "SteamVR Overlay",
@@ -1130,11 +1198,15 @@
                     "instance_type_player_count": "Instance Type & Player Count",
                     "join_button": "Join Button (Public Only)",
                     "show_details_in_private": "Show Details in Private Instances",
+                    "show_details_in_private_tooltip": "Show world and instance details for Invite, Invite+ and Group Members instances, or while using the Ask Me status",
                     "show_images": "Show World Images",
+                    "show_media_images": "Show Media Images",
+                    "show_media_images_tooltip": "Use the thumbnail of the currently playing video when the world's media player provides one",
                     "show_current_platform": "Show Current Platform",
                     "world_integration": "World Integration",
-                    "world_integration_tooltip": "Show \"Watching/Listening to\" for Popcorn Palace, PyPyDance, VRDancing and LS Media",
-                    "display_world_name_as_discord_status": "Use World Name as Activity"
+                    "world_integration_tooltip": "Show \"Watching/Listening to\" for Popcorn Palace, PyPyDance, VRDancing, LS Media and more",
+                    "display_world_name_as_discord_status": "Use World Name as Activity",
+                    "display_world_name_as_discord_status_tooltip": "Show the world name instead of \"VRChat\" in your Discord status, e.g. \"Playing The Black Cat\""
                 },
                 "rpc": {
                     "vr": "VR",
@@ -1355,7 +1427,8 @@
         "alertdialog": {
             "ok": "OK",
             "cancel": "Cancel",
-            "confirm": "Confirm"
+            "confirm": "Confirm",
+            "dont_show_again": "Don't show this again"
         },
         "prompt": {
             "input_invalid": "Invalid input"
@@ -1378,6 +1451,7 @@
                 "trust_level": "Trust Level",
                 "account_standing": "Account Standing",
                 "mutual_friends": "Mutual Friends",
+                "mutual_groups": "Mutual Groups",
                 "open_in_discord": "Open in Discord",
                 "discord": "Discord"
             },
@@ -1439,8 +1513,14 @@
                 "instance_users": "Users:",
                 "instance_friends_tooltip": "Friends in this instance",
                 "instance_game_version": "Game Version:",
+                "instance_languages": "Languages:",
                 "last_join": "Last Join",
                 "instance_queuing_enabled": "Queuing Enabled",
+                "instance_hype_train": "Hype Train Active",
+                "instance_hype_train_gifts": "Gifts:",
+                "instance_hype_train_contributors": "Contributors:",
+                "instance_hype_train_started": "Started:",
+                "instance_hype_train_time_remaining": "Time Remaining:",
                 "instance_disabled_content": "Disabled Content:",
                 "instance_creator": "Instance Creator",
                 "note": "Note",
@@ -1478,6 +1558,7 @@
                 "instance_age_restricted": "Restricted",
                 "instance_age_restricted_tooltip": "In an age-restricted instance",
                 "close_instance": "Close Instance",
+                "rename_instance": "Rename Instance",
                 "instance_age_gated": "Age Gated",
                 "instance_role_restricted": "Role Restricted",
                 "instance_calendar_event": "Calendar Event",
@@ -1488,7 +1569,8 @@
                 "instance_minimum_avatar_performance": "Minimum Avatar Performance",
                 "current_instance": "Current Instance",
                 "economy_creator": "Economy Creator",
-                "instance_announcement_tooltip": "Send Instance Announcement"
+                "instance_announcement_tooltip": "Send Instance Announcement",
+                "instance_calendar_link_tooltip": "Assign Group Event"
             },
             "groups": {
                 "header": "Groups",
@@ -1543,6 +1625,7 @@
                 "all": "All",
                 "public": "Public",
                 "private": "Private",
+                "purchased": "Purchased",
                 "group_by": "Group by:"
             },
             "json": {
@@ -1691,6 +1774,9 @@
                 "time_spent": "Time Spent",
                 "description": "Description"
             },
+            "store": {
+                "header": "Store"
+            },
             "json": {
                 "header": "JSON"
             }
@@ -1754,6 +1840,7 @@
                 "id_tooltip": "Copy to clipboard",
                 "copy_id": "Copy ID",
                 "copy_url": "Copy URL",
+                "copy_name": "Copy Name",
                 "created_at": "Created At",
                 "last_updated": "Last Updated",
                 "version": "Version",
@@ -1767,6 +1854,8 @@
                 "memo": "Memo",
                 "memo_placeholder": "Click to add a memo",
                 "listings": "Listings",
+                "purchase_confirm": "Purchase {name} for {price} VRC Credits? VRC Credits are purchased with real money and this purchase cannot be reversed.",
+                "purchase_success": "Purchase successful",
                 "gallery": "Gallery",
                 "gallery_move_left": "Move Left",
                 "gallery_move_right": "Move Right",
@@ -1811,6 +1900,7 @@
             "starts_at": "Starts At",
             "ends_at": "Ends At",
             "invalid_date_range": "The event must end after it starts.",
+            "start_in_past": "The event must start in the future.",
             "access_type": "Access",
             "access_group": "Group",
             "access_public": "Public",
@@ -2699,6 +2789,20 @@
             "load_more": "Load More",
             "delete_confirm": "Delete this report?"
         },
+        "purchase_history": {
+            "header": "Purchase History",
+            "filter_type": "Type",
+            "all": "All",
+            "gift": "Gift",
+            "inactive": "Inactive",
+            "seller": "Seller",
+            "free": "Free",
+            "ends": "Ends",
+            "purchases": "Purchases",
+            "transactions": "Transactions",
+            "from": "From",
+            "balance": "Balance"
+        },
         "info_push": {
             "header": "Info Push",
             "categories": {
@@ -2735,6 +2839,14 @@
             "close": "Close",
             "consume": "Consume",
             "consume_success": "Bundle consumed"
+        },
+        "free_store_item_dialog": {
+            "header": "Free Store Items",
+            "description": "These free items are available in the VRChat store.",
+            "dont_show_again": "Don't show this again",
+            "close": "Close",
+            "claim": "Claim All",
+            "claim_success": "Claimed {count} free item(s)"
         },
         "boop_dialog": {
             "header": "Boop",
@@ -2818,6 +2930,14 @@
             "select_image": "Select Image",
             "sending": "Sending...",
             "send": "Send Announcement"
+        },
+        "instance_calendar_link": {
+            "header": "Assign Group Event",
+            "event": "Event",
+            "no_events": "No events starting within the next 6 hours or ended within the last 6 hours",
+            "assign": "Assign",
+            "remove": "Remove Link",
+            "saving": "Saving..."
         }
     },
     "confirm": {
@@ -2849,6 +2969,8 @@
         "unblock_group": "Are you sure you want to unblock this group?",
         "leave_group": "Are you sure you want to leave this group?",
         "disable_gamelog": "Continue? Disable GameLog",
+        "youtube_bot_error_title": "YouTube video failed to load",
+        "youtube_bot_error": "YouTube is blocking video playback with a \"Sign in to confirm\" error. VRCVideoCacher can fix this, would you like to open its Steam store page?",
         "restore_backup": "Continue? Restore Backup",
         "delete_vrc_registry": "Continue? Delete VRC Registry Settings",
         "clear_cache": "Continue? Clear all VRChat cache",
@@ -2919,6 +3041,10 @@
             "cancel": "Cancel",
             "ok": "OK",
             "input_error": "Valid number is required"
+        },
+        "rename_instance": {
+            "header": "Rename Instance",
+            "description": "Enter instance name, leave empty to clear"
         },
         "rename_avatar": {
             "header": "Rename Avatar",
@@ -3088,6 +3214,7 @@
         },
         "instance": {
             "closed": "Instance closed",
+            "renamed": "Instance renamed",
             "removed_form_queue": "Removed instance {worldName} from queue",
             "not_allowed": "You're not allowed to access this instance",
             "create_failed": "Failed to create instance",
@@ -3574,6 +3701,9 @@
         "headless_set_default": "Set default",
         "headless_switch": "Switch",
         "headless_switch_confirm": "Switch to {url}? The app will restart to reload against it.",
+        "headless_switch_confirm_web": "Open {url}? This page will reload and you may need to sign in there.",
+        "headless_add_web_hint": "Saved in this browser only. Opens that server's own web client when you pick it.",
+        "headless_url_invalid": "Enter a valid http(s) URL.",
         "headless_switch_failed": "Could not switch servers.",
         "headless_remove": "Remove",
         "headless_remove_confirm": "Remove {url}? You'll need to pair with it again to reconnect.",
@@ -3585,6 +3715,14 @@
         "headless_url_required": "Server URL is required.",
         "headless_connect_failed": "Could not connect.",
         "headless_code_mismatch": "That code didn't match.",
+        "headless_api_keys": "API keys",
+        "headless_api_keys_hint": "Create read-only keys for external tools. Requires the API to be enabled on the server.",
+        "headless_api_keys_open": "Manage API keys",
+        "headless_api_keys_open_browser": "Open in browser",
+        "headless_api_keys_description": "Read-only keys that let external tools read from this server's cache. Each key only does what its scopes allow.",
+        "headless_api_keys_disabled": "The external API is disabled on this server. Set VRCX_API_ENABLED=1 on the server and restart it.",
+        "headless_api_keys_loading": "Loading…",
+        "headless_api_keys_load_failed": "Could not load API keys.",
         "headless_ca_cert": "Custom CA certificate",
         "headless_ca_cert_imported": "Trusted (custom certificate imported).",
         "headless_ca_cert_none": "Connecting to a self-signed HTTPS server? Import its CA certificate here.",

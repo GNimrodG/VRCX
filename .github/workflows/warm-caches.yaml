@@ -1,0 +1,51 @@
+# Fork-only: keeps the desktop build's download caches warm on `main`.
+#
+# Why this exists: GitHub scopes Actions caches to the ref that saved them, and
+# a tag run can only restore caches saved on the default branch (or by itself).
+# Release builds run on tags, so caches saved *by* a release can never help the
+# next one. Electron's binary and electron-builder's signing/packaging tools are
+# downloaded from GitHub releases during every build, and those downloads have
+# failed with transient HTTP 504s. Running the real release build on `main`
+# saves the exact cache keys later tag runs restore (see
+# .github/actions/install-deps/action.yaml, whose `cache-name` is the matrix
+# leg id on both sides).
+#
+# It calls desktop-release.yaml rather than copying its jobs: only a full build
+# downloads electron-builder's tools (they are fetched at packaging/signing
+# time), and one definition can't drift from the other. Nothing is published:
+# that workflow's publish-release job requires a `refs/tags/v*` ref, and
+# `github.ref` here is the caller's (`refs/heads/main`).
+#
+# Triggers:
+#  - push to main that changes what the caches are keyed on (the lockfile,
+#    electron-builder's config, the install action) or these workflows;
+#  - every 3 days: GitHub evicts caches not accessed for 7 days, and a restore
+#    on an exact key hit counts as an access;
+#  - manually.
+name: Warm build caches
+
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - 'pnpm-lock.yaml'
+            - 'package.json'
+            - 'electron-builder.config.js'
+            - '.github/actions/install-deps/**'
+            - '.github/workflows/warm-caches.yaml'
+            - '.github/workflows/desktop-release.yaml'
+    schedule:
+        - cron: '17 4 */3 * *'
+    workflow_dispatch:
+
+permissions:
+    contents: write
+
+jobs:
+    warm:
+        name: Build (cache warm-up, no release)
+        uses: ./.github/workflows/desktop-release.yaml
+        # desktop-release.yaml's packaging step reads WIN_CSC_LINK, and signing
+        # is part of what downloads (and so caches) electron-builder's Windows tools.
+        secrets: inherit
