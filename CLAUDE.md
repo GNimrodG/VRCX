@@ -48,7 +48,8 @@ What's actually OS-tested inside `Dotnet/AppApi/Electron/**`, verified live (202
 | Server connection, RPC, agent channel, TLS/CA trust | tested (AppImage, phase 5) | tested |
 | `StartGame`/`StartGameFromPath` (VRChat autodetect + launch) | tested (Steam-on-Linux paths) | tested (Steam/VRChat registry keys, `GameHandler.cs`'s `StartGameWindows`/`StartGameFromPathWindows`) |
 | Everything else in `Folders.cs` (screenshot/app-data/crash paths, `OpenFolderAndSelectItem`'s `xdg-open`/`nautilus`/etc, `which`-based command detection) | tested | **untested, almost certainly broken** — written entirely around Linux paths and Linux-only shell commands, no Windows branch added |
-| `TryOpenInstanceInVrc` (attach a deeplink to an already-running client) | tested (`nsenter`+`wine`) | **untested, almost certainly broken** — same reason; the JS caller already has a self-invite fallback for exactly this failure mode, so it degrades gracefully rather than erroring |
+| `TryOpenInstanceInVrc` (attach a deeplink to an already-running client) | tested (`nsenter`+`wine`) | tested (2026-11-12): uses `VRCIPC` (`VRChatURLLaunchPipe`), as the CefSharp client did |
+| Auto-launch apps with VRChat (`ProcessMonitor` + `AutoAppLaunchManager`) | not started (WinApi-based) | tested (2026-11-12): started in `Program.Init()` on Windows only |
 | VR overlay, Discord RPC, LogWatcher, registry, screenshots | Linux-tested only | untested |
 
 So: **Windows is a supported OS for the Electron client's server-connection and game-launch path specifically**, not a general Windows/Electron parity claim — the rest of the native surface should be assumed Linux-only until someone does the same OS-branching `GameHandler.cs` just got.

@@ -227,6 +227,22 @@ namespace VRCX
 
         public override Task<bool> TryOpenInstanceInVrc(string launchUrl)
         {
+            // Native Windows: hand the deeplink to the running client over VRChat's own URL launch pipe, as the
+            // CefSharp client did (AppApiCommon's default). The nsenter/wine path below only exists for Proton.
+            if (OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    return base.TryOpenInstanceInVrc(launchUrl);
+                }
+                catch (Exception ex)
+                {
+                    // pipe missing/timeout when VRChat isn't running; caller falls back to a self-invite
+                    logger.Error(ex, "TryOpenInstanceInVrc: VRChat URL launch pipe failed");
+                    return Task.FromResult(false);
+                }
+            }
+
             try
             {
                 var pid = FindVRChatPid();
