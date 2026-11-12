@@ -2133,10 +2133,22 @@ function createOverlayWindowOffscreen() {
     });
 }
 
-// Fork-only: Windows frame transport (see overlayShm.js); Buffer marshals to Memory<byte> without a copy
+// Fork-only: Windows frame transport (see overlayShm.js). One Buffer is registered with .NET once and reused:
+// passing a fresh Buffer per frame leaks it (OverlayFrameSinkElectron.cs explains why).
+let overlayDotNetBuffer = null;
+
 function submitOverlayFrameToDotNet(imageBuffer) {
     try {
-        interopApi.getDotNetObject('OverlayFrameSinkElectron').Submit(imageBuffer);
+        const sink = interopApi.getDotNetObject('OverlayFrameSinkElectron');
+        if (!overlayDotNetBuffer) {
+            overlayDotNetBuffer = Buffer.alloc(OVERLAY_FRAME_SIZE);
+            sink.SetSharedBuffer(overlayDotNetBuffer);
+        }
+        if (imageBuffer.length < OVERLAY_FRAME_SIZE) {
+            return;
+        }
+        imageBuffer.copy(overlayDotNetBuffer, 0, 0, OVERLAY_FRAME_SIZE);
+        sink.Commit();
     } catch (err) {
         console.error('Error submitting overlay frame:', err);
     }
