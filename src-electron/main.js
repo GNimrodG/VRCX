@@ -1593,21 +1593,67 @@ function scheduleWindowsInstallAfterUpdate() {
     const execPathBeforeUpdate = process.execPath;
     const batchPath = path.join(getVRCXPath(), 'apply-update.bat');
     const logPath = path.join(getVRCXPath(), 'apply-update.log');
+    const exeName = path.basename(execPathBeforeUpdate);
+    const pid = process.pid;
+    const log = (text) => `echo [%date% %time%] ${text} >> "${logPath}"`;
     const batchLines = [
         '@echo off',
-        `echo [%date% %time%] scheduled, waiting for old process to exit > "${logPath}"`,
-        'timeout /t 3 /nobreak >nul',
-        `echo [%date% %time%] running installer >> "${logPath}"`,
-        `"${updateExePath}"`,
-        `echo [%date% %time%] installer exit code %errorlevel% >> "${logPath}"`,
+        `echo [%date% %time%] scheduled, waiting for old process ${pid} to exit > "${logPath}"`,
+        // A fixed 3s wait raced a slow-exiting old process: the installer then stalled on its
+        // "app is running" check, and the relaunch below bounced off the old single-instance lock.
+        'set /a tries=0',
+        ':waitold',
+        `tasklist /FI "PID eq ${pid}" /NH 2>nul | find "${pid}" >nul`,
+        'if errorlevel 1 goto oldgone',
+        'set /a tries+=1',
+        'if %tries% GEQ 30 goto killold',
+        'timeout /t 1 /nobreak >nul',
+        'goto waitold',
+        ':killold',
+        log('old process still alive after 30s, killing it'),
+        `taskkill /F /T /PID ${pid} >nul 2>&1`,
+        'timeout /t 2 /nobreak >nul',
+        ':oldgone',
+        log('running installer'),
+        `start /wait "" "${updateExePath}"`,
+        log('installer exit code %errorlevel%'),
+        // The NSIS installer can hand its work to a child and return early, which made the
+        // relaunch below start a half-replaced app. Wait until the installer is really done.
+        'set /a tries=0',
+        ':waitinstaller',
+        'tasklist /FI "IMAGENAME eq update.exe" /NH 2>nul | find /I "update.exe" >nul',
+        'if not errorlevel 1 goto installerbusy',
+        'tasklist /FI "IMAGENAME eq Uninstall VRCX Headless.exe" /NH 2>nul | find /I "Uninstall" >nul',
+        'if errorlevel 1 goto installerdone',
+        ':installerbusy',
+        'set /a tries+=1',
+        'if %tries% GEQ 120 goto installerdone',
+        'timeout /t 1 /nobreak >nul',
+        'goto waitinstaller',
+        ':installerdone',
+        log('installer processes gone'),
         // The installer runs from update.exe in place, so nothing else removes it.
         // Left behind, the relaunched app's Update.Check() (Dotnet/Program.cs Init)
         // moves it to VRCX_Setup.exe and re-runs the installer, then Environment.Exit(0)s
         // before the app ever opens: the "installer ran twice, app never launched" bug.
         `del /f /q "${updateExePath}"`,
         `echo [%date% %time%] removed update.exe >> "${logPath}"`,
+        // The installer's own "run after finish" may already have started the app, so only
+        // launch it when nothing is running; then check again and retry once.
+        'set /a attempt=0',
+        ':relaunch',
+        `tasklist /FI "IMAGENAME eq ${exeName}" /NH 2>nul | find /I "${exeName}" >nul`,
+        'if not errorlevel 1 goto running',
+        'set /a attempt+=1',
+        log('relaunch attempt %attempt%'),
         `start "" "${execPathBeforeUpdate}"`,
-        `echo [%date% %time%] relaunch issued >> "${logPath}"`
+        'timeout /t 15 /nobreak >nul',
+        'if %attempt% GEQ 3 goto finished',
+        'goto relaunch',
+        ':running',
+        log('app is running'),
+        'goto finished',
+        ':finished'
     ];
     fs.writeFileSync(batchPath, batchLines.join('\r\n'));
     logFork(`Wrote ${batchPath}, spawning cmd.exe`);
