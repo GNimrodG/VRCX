@@ -125,6 +125,18 @@
                     "
                     @update:modelValue="setPersistentInviteToast" />
             </SettingsItem>
+
+            <SettingsItem
+                :label="t('view.settings.notifications.notifications.desktop_notifications.queue_ready_alarm')"
+                :description="
+                    t('view.settings.notifications.notifications.desktop_notifications.queue_ready_alarm_description')
+                "
+                toggle>
+                <Switch
+                    :model-value="queueReadyAlarm"
+                    :ariaLabel="t('view.settings.notifications.notifications.desktop_notifications.queue_ready_alarm')"
+                    @update:modelValue="setQueueReadyAlarm" />
+            </SettingsItem>
         </SettingsGroup>
 
         <SettingsGroup :title="t('view.settings.notifications.notifications.text_to_speech.header')">
@@ -231,6 +243,7 @@
         desktopToast,
         afkDesktopToast,
         persistentInviteToast,
+        queueReadyAlarm,
         notificationTTS,
         notificationTTSNickName,
         inventoryBundleNotifications,
@@ -244,6 +257,7 @@
         setDesktopToast,
         setAfkDesktopToast,
         setPersistentInviteToast,
+        setQueueReadyAlarm,
         setNotificationTTSNickName,
         setInventoryBundleNotifications,
         setFreeStoreItemNotifications,

@@ -25,6 +25,7 @@ export const useNotificationsSettingsStore = defineStore('NotificationsSettings'
     const desktopToast = ref('Never');
     const afkDesktopToast = ref(false);
     const persistentInviteToast = ref(false);
+    const queueReadyAlarm = ref(false);
     const notificationTTS = ref('Never');
     const notificationTTSNickName = ref(false);
     const inventoryBundleNotifications = ref(true);
@@ -139,6 +140,7 @@ export const useNotificationsSettingsStore = defineStore('NotificationsSettings'
             desktopToastConfig,
             afkDesktopToastConfig,
             persistentInviteToastConfig,
+            queueReadyAlarmConfig,
             notificationTTSConfig,
             notificationTTSNickNameConfig,
             inventoryBundleNotificationsConfig,
@@ -159,6 +161,7 @@ export const useNotificationsSettingsStore = defineStore('NotificationsSettings'
             configRepository.getString('VRCX_desktopToast', 'Never'),
             configRepository.getBool('VRCX_afkDesktopToast', false),
             configRepository.getBool('VRCX_persistentInviteToast', false),
+            configRepository.getBool('VRCX_queueReadyAlarm', false),
             configRepository.getString('VRCX_notificationTTS', 'Never'),
             configRepository.getBool('VRCX_notificationTTSNickName', false),
             configRepository.getBool('VRCX_inventoryBundleNotifications', true),
@@ -189,6 +192,7 @@ export const useNotificationsSettingsStore = defineStore('NotificationsSettings'
         desktopToast.value = desktopToastConfig;
         afkDesktopToast.value = afkDesktopToastConfig;
         persistentInviteToast.value = persistentInviteToastConfig;
+        queueReadyAlarm.value = queueReadyAlarmConfig;
         notificationTTS.value = notificationTTSConfig;
         notificationTTSNickName.value = notificationTTSNickNameConfig;
         inventoryBundleNotifications.value = inventoryBundleNotificationsConfig;
@@ -264,6 +268,10 @@ export const useNotificationsSettingsStore = defineStore('NotificationsSettings'
     function setPersistentInviteToast() {
         persistentInviteToast.value = !persistentInviteToast.value;
         configRepository.setBool('VRCX_persistentInviteToast', persistentInviteToast.value);
+    }
+    function setQueueReadyAlarm() {
+        queueReadyAlarm.value = !queueReadyAlarm.value;
+        configRepository.setBool('VRCX_queueReadyAlarm', queueReadyAlarm.value);
     }
     /**
      * @param {string} value
@@ -462,6 +470,7 @@ export const useNotificationsSettingsStore = defineStore('NotificationsSettings'
         desktopToast,
         afkDesktopToast,
         persistentInviteToast,
+        queueReadyAlarm,
         notificationTTS,
         notificationTTSNickName,
         inventoryBundleNotifications,
@@ -485,6 +494,7 @@ export const useNotificationsSettingsStore = defineStore('NotificationsSettings'
         setDesktopToast,
         setAfkDesktopToast,
         setPersistentInviteToast,
+        setQueueReadyAlarm,
         setNotificationTTS,
         setNotificationTTSNickName,
         setInventoryBundleNotifications,

@@ -7,17 +7,15 @@ import {
 } from '../userTransforms';
 
 describe('sanitizeUserJson', () => {
-    it('applies replaceBioSymbols to statusDescription, bio, note', () => {
+    it('applies replaceBioSymbols to statusDescription and note', () => {
         const json = {
             statusDescription: 'hello？ world',
-            bio: 'test＃ bio',
             note: 'test＠ note'
         };
         sanitizeUserJson(json, '');
         // replaceBioSymbols replaces Unicode look-alikes with ASCII; bio is intentionally
         // left alone here now (upstream applies it at display time, not on ingest)
         expect(json.statusDescription).toContain('?');
-        expect(json.bio).toBe('test＃ bio');
         expect(json.note).toContain('@');
     });
 
@@ -208,6 +206,6 @@ describe('createDefaultUserRef', () => {
         });
         expect(ref.id).toBe('usr_123');
         expect(ref.displayName).toBe('Test');
-        expect(ref.bio).toBe('');
+        expect(ref.state).toBe('');
     });
 });

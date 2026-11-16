@@ -213,7 +213,7 @@ describe('Login.vue', () => {
     describe('legal notice', () => {
         test('renders legal notice section', () => {
             const wrapper = mountLogin();
-            expect(wrapper.text()).toContain('VRCX is not endorsed by VRChat');
+            expect(wrapper.text()).toContain(en.view.settings.general.legal_notice.disclaimer2);
         });
     });
 

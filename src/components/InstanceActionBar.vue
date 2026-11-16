@@ -197,7 +197,10 @@
                         </span>
                     </div>
                 </template>
-                <div :class="cn('flex items-center gap-0.5', instance?.hasCapacityForYou === false ? 'text-red-500' : null)">
+                <div
+                    :class="
+                        cn('flex items-center gap-0.5', instance?.hasCapacityForYou === false ? 'text-red-500' : null)
+                    ">
                     <UsersRound class="h-4 w-4" />
                     <span v-if="resolvedInstanceLocation === locationStore.lastLocation.location">
                         {{ locationStore.lastLocation.playerList.size }}/{{ instance?.capacity }}

@@ -90,7 +90,7 @@ vi.mock('../../../../services/request', () => ({
 }));
 
 import UserDialogInfoTab from '../UserDialogInfoTab.vue';
-import { marketplaceRequest } from '../../../../api';
+import { queryRequest } from '../../../../api';
 import {
     useAdvancedSettingsStore,
     useAppearanceSettingsStore,
@@ -223,9 +223,7 @@ describe('UserDialogInfoTab.vue', () => {
 
     describe('unit behavior', () => {
         test('onTabActivated fetches VRChat credits only once after first success', async () => {
-            const creditsSpy = vi
-                .spyOn(marketplaceRequest, 'getVRChatCredits')
-                .mockResolvedValue({ json: { balance: 42 } });
+            const creditsSpy = vi.spyOn(queryRequest, 'fetch').mockResolvedValue({ json: { balance: 42 } });
             const wrapper = mountComponent();
 
             wrapper.vm.onTabActivated();

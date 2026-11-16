@@ -294,7 +294,7 @@ describe('useUserDialogCommands', () => {
             });
         });
 
-        it('Report User: should open the moderation report dialog', () => {
+        it('Report User: should open moderation report dialog', () => {
             const { userDialogCommand } = useUserDialogCommands(userDialog, deps);
             userDialogCommand('Report User');
             expect(deps.showModerationReportDialog).toHaveBeenCalledWith({

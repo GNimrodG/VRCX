@@ -12,7 +12,8 @@ const mocks = vi.hoisted(() => ({
     },
     userStore: {},
     showUserDialog: vi.fn(),
-    confirmDeleteFriend: vi.fn()
+    confirmDeleteFriend: vi.fn(),
+    isActionRecent: vi.fn(() => false)
 }));
 
 vi.mock('pinia', async (importOriginal) => {
@@ -37,7 +38,12 @@ vi.mock('../../../../coordinators/friendRelationshipCoordinator', () => ({
     confirmDeleteFriend: (...args) => mocks.confirmDeleteFriend(...args)
 }));
 
-vi.mock('../../../../shared/utils', () => ({
+vi.mock('../../../../composables/useRecentActions', () => ({
+    isActionRecent: (...args) => mocks.isActionRecent(...args)
+}));
+
+vi.mock('../../../../shared/utils', async (importOriginal) => ({
+    ...(await importOriginal()),
     userImage: vi.fn(() => 'https://example.com/avatar.png'),
     userStatusClass: vi.fn(() => 'status-online')
 }));
@@ -89,7 +95,14 @@ vi.mock('@/components/Timer.vue', () => ({
     }
 }));
 
+vi.mock('@/components/IconFrame.vue', () => ({
+    default: { template: '<span data-testid="icon-frame" />' }
+}));
+
 vi.mock('lucide-vue-next', () => ({
+    Clock: {
+        template: '<span data-testid="icon-clock" />'
+    },
     User: {
         template: '<span data-testid="icon-user" />'
     },
@@ -137,6 +150,8 @@ describe('FriendItem.vue', () => {
         mocks.friendStore.allFavoriteFriendIds = new Set();
         mocks.confirmDeleteFriend.mockReset();
         mocks.showUserDialog.mockReset();
+        mocks.isActionRecent.mockReset();
+        mocks.isActionRecent.mockReturnValue(false);
     });
 
     test('renders delete action for orphan friend and triggers confirmDeleteFriend', async () => {
@@ -183,5 +198,17 @@ describe('FriendItem.vue', () => {
             expect(wrapper.find('[data-testid="location"]').exists()).toBe(true);
             expect(wrapper.text()).not.toContain('Busy coding');
         });
+    });
+
+    test.each([
+        'Invite',
+        'Invite Photo',
+        'Invite Message',
+        'Request Invite',
+        'Request Invite Photo',
+        'Request Invite Message'
+    ])('shows recent-action clock after %s', (action) => {
+        mocks.isActionRecent.mockImplementation((_id, recentAction) => recentAction === action);
+        expect(mountItem().find('[data-testid="icon-clock"]').exists()).toBe(true);
     });
 });
