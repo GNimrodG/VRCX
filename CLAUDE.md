@@ -305,15 +305,14 @@ dotnet test tests/dotnet/VRCX.Tests   # the fork's native helpers (Windows-only 
 node --import ./server/register-hooks.mjs server/src/cli.js info
 ```
 
-Then, against a **copy** of a real database:
+Then, against a **copy** of the server's real database (`scp` `VRCX.sqlite3` and its `-wal` off the host; it holds the VRChat session, so delete the copy afterwards):
 
 ```bash
-cp ~/.config/VRCX/VRCX.sqlite3 /tmp/parity.sqlite3
-pnpm run server -- migrate --db=/tmp/parity.sqlite3
-pnpm run server -- tables --db=/tmp/parity.sqlite3
+pnpm run server -- migrate --db=<copy>    # must say "Already at version N" or migrate cleanly
+pnpm run server -- tables --db=<copy>
 ```
 
-Diff `sqlite_schema` against the same database migrated by the desktop build. They must be identical, except for the server-owned `seen_avatars`/`seen_avatars_meta` tables (`server/src/seen-avatars.js`), which only exist once a user has logged in and which the desktop app ignores.
+Optionally diff its `sqlite_schema` against a fresh `migrate --create --user=<usr_...>` of the merged code. Expect only (a) `DEFAULT` clauses on columns upstream added with `ALTER TABLE` to older databases, and (b) server-created runtime tables (`cookies`, `notification_delivery`, `public_user_cache`). There is no desktop-build comparison: this fork's desktop client no longer opens SQLite, so only an upstream build could produce one, and the server runs upstream's migration code unmodified anyway.
 
 ---
 
