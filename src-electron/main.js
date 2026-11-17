@@ -1585,86 +1585,90 @@ function scheduleAppImageRelaunchAfterUpdate() {
 
 /**
  * Windows counterpart: hands the install-then-relaunch chain to a detached
- * `apply-update.bat`, then exits. See `checkAndInstallForkUpdateInner()`'s
+ * `apply-update.vbs` (run by `wscript.exe`, no console), then exits. See `checkAndInstallForkUpdateInner()`'s
  * comments for why it is a script that ignores the installer's exit code.
  */
 function scheduleWindowsInstallAfterUpdate() {
     const updateExePath = path.join(getVRCXPath(), 'update.exe');
     const execPathBeforeUpdate = process.execPath;
-    const batchPath = path.join(getVRCXPath(), 'apply-update.bat');
+    const scriptPath = path.join(getVRCXPath(), 'apply-update.vbs');
     const logPath = path.join(getVRCXPath(), 'apply-update.log');
     const exeName = path.basename(execPathBeforeUpdate);
     const pid = process.pid;
-    const log = (text) => `echo [%date% %time%] ${text} >> "${logPath}"`;
-    const batchLines = [
-        '@echo off',
-        `echo [%date% %time%] scheduled, waiting for old process ${pid} to exit > "${logPath}"`,
-        // A fixed 3s wait raced a slow-exiting old process: the installer then stalled on its
-        // "app is running" check, and the relaunch below bounced off the old single-instance lock.
-        'set /a tries=0',
-        ':waitold',
-        `tasklist /FI "PID eq ${pid}" /NH 2>nul | find "${pid}" >nul`,
-        'if errorlevel 1 goto oldgone',
-        'set /a tries+=1',
-        'if %tries% GEQ 30 goto killold',
-        'timeout /t 1 /nobreak >nul',
-        'goto waitold',
-        ':killold',
-        log('old process still alive after 30s, killing it'),
-        `taskkill /F /T /PID ${pid} >nul 2>&1`,
-        'timeout /t 2 /nobreak >nul',
-        ':oldgone',
-        log('running installer'),
-        `start /wait "" "${updateExePath}"`,
-        log('installer exit code %errorlevel%'),
+    // A VBScript run by wscript.exe instead of a .bat: it has no console window at all, and it
+    // checks processes through WMI. The previous batch used `tasklist | find` and `timeout`,
+    // which hang or abort when cmd.exe is launched detached without a console (the update
+    // stuck at "waiting for old process"). It can't be an Electron-as-Node helper either: the
+    // installer has to replace this very exe while the helper runs.
+    const q = (value) => `"${String(value).replace(/"/g, '""')}"`;
+    const scriptLines = [
+        'Option Explicit',
+        'Dim sh, fso, wmi, i, attempt',
+        'Set sh = CreateObject("WScript.Shell")',
+        'Set fso = CreateObject("Scripting.FileSystemObject")',
+        'Set wmi = GetObject("winmgmts:\\.\root\cimv2")',
+        'Sub Log(text)',
+        '  Dim f',
+        `  Set f = fso.OpenTextFile(${q(logPath)}, 8, True)`,
+        '  f.WriteLine "[" & Now & "] " & text',
+        '  f.Close',
+        'End Sub',
+        'Function Running(clause)',
+        '  Running = (wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE " & clause).Count > 0)',
+        'End Function',
+        `Log "scheduled, waiting for old process ${pid} to exit"`,
+        // A fixed short wait raced a slow-exiting old process: the installer then stalled on its
+        // "app is running" check, and the relaunch bounced off the old single-instance lock.
+        'For i = 1 To 30',
+        `  If Not Running("ProcessId = ${pid}") Then Exit For`,
+        '  WScript.Sleep 1000',
+        'Next',
+        `If Running("ProcessId = ${pid}") Then`,
+        '  Log "old process still alive after 30s, killing it"',
+        `  sh.Run "taskkill /F /T /PID ${pid}", 0, True`,
+        '  WScript.Sleep 2000',
+        'End If',
+        'Log "running installer"',
+        `i = sh.Run(${q(q(updateExePath))}, 1, True)`,
+        'Log "installer exit code " & i',
         // The NSIS installer can hand its work to a child and return early, which made the
-        // relaunch below start a half-replaced app. Wait until the installer is really done.
-        'set /a tries=0',
-        ':waitinstaller',
-        'tasklist /FI "IMAGENAME eq update.exe" /NH 2>nul | find /I "update.exe" >nul',
-        'if not errorlevel 1 goto installerbusy',
-        'tasklist /FI "IMAGENAME eq Uninstall VRCX Headless.exe" /NH 2>nul | find /I "Uninstall" >nul',
-        'if errorlevel 1 goto installerdone',
-        ':installerbusy',
-        'set /a tries+=1',
-        'if %tries% GEQ 120 goto installerdone',
-        'timeout /t 1 /nobreak >nul',
-        'goto waitinstaller',
-        ':installerdone',
-        log('installer processes gone'),
+        // relaunch start a half-replaced app. Wait until the installer is really done.
+        'For i = 1 To 120',
+        '  If Not (Running("Name = \'update.exe\'") Or Running("Name LIKE \'Uninstall%\'")) Then Exit For',
+        '  WScript.Sleep 1000',
+        'Next',
+        'Log "installer processes gone"',
         // The installer runs from update.exe in place, so nothing else removes it.
         // Left behind, the relaunched app's Update.Check() (Dotnet/Program.cs Init)
         // moves it to VRCX_Setup.exe and re-runs the installer, then Environment.Exit(0)s
         // before the app ever opens: the "installer ran twice, app never launched" bug.
-        `del /f /q "${updateExePath}"`,
-        `echo [%date% %time%] removed update.exe >> "${logPath}"`,
+        'On Error Resume Next',
+        `fso.DeleteFile ${q(updateExePath)}, True`,
+        'On Error GoTo 0',
+        'Log "removed update.exe"',
         // The installer's own "run after finish" may already have started the app, so only
-        // launch it when nothing is running; then check again and retry once.
-        'set /a attempt=0',
-        ':relaunch',
-        `tasklist /FI "IMAGENAME eq ${exeName}" /NH 2>nul | find /I "${exeName}" >nul`,
-        'if not errorlevel 1 goto running',
-        'set /a attempt+=1',
-        log('relaunch attempt %attempt%'),
-        `start "" "${execPathBeforeUpdate}"`,
-        'timeout /t 15 /nobreak >nul',
-        'if %attempt% GEQ 3 goto finished',
-        'goto relaunch',
-        ':running',
-        log('app is running'),
-        'goto finished',
-        ':finished'
+        // launch it when nothing is running; then check again, up to 3 attempts.
+        'For attempt = 1 To 3',
+        `  If Running("Name = '${exeName.replace(/'/g, "''")}'") Then`,
+        '    Log "app is running"',
+        '    Exit For',
+        '  End If',
+        '  Log "relaunch attempt " & attempt',
+        `  sh.Run ${q(q(execPathBeforeUpdate))}, 1, False`,
+        '  WScript.Sleep 15000',
+        'Next'
     ];
-    fs.writeFileSync(batchPath, batchLines.join('\r\n'));
-    logFork(`Wrote ${batchPath}, spawning cmd.exe`);
-    const launcher = spawn('cmd.exe', ['/c', batchPath], {
+    fs.writeFileSync(scriptPath, scriptLines.join('\r\n'));
+    logFork(`Wrote ${scriptPath}, spawning wscript.exe`);
+    const launcher = spawn('wscript.exe', ['//B', '//Nologo', scriptPath], {
         detached: true,
-        stdio: 'ignore'
+        stdio: 'ignore',
+        windowsHide: true
     });
-    logFork(`cmd.exe spawn returned, pid=${launcher.pid}`);
+    logFork(`wscript.exe spawn returned, pid=${launcher.pid}`);
     // Fire-and-forget from here — an unhandled 'error' on this emitter
     // would otherwise crash the process we're about to exit anyway.
-    launcher.on('error', (err) => logFork(`cmd.exe spawn error: ${err?.message ?? err}`));
+    launcher.on('error', (err) => logFork(`wscript.exe spawn error: ${err?.message ?? err}`));
     launcher.unref();
     logFork('Exiting now');
     app.exit(0);
