@@ -178,14 +178,6 @@ namespace VRCX
 
         }
 
-        /// <summary>Copies a rectangle out of the top-down BGRA shared frame (rows of SHARED_FRAME_WIDTH pixels).</summary>
-        internal static void CropFrame(byte[] frame, int x, int y, int width, int height, byte[] destination)
-        {
-            var rowBytes = width * 4;
-            for (var row = 0; row < height; row++)
-                Buffer.BlockCopy(frame, ((y + row) * SHARED_FRAME_WIDTH + x) * 4, destination, row * rowBytes, rowBytes);
-        }
-
         /// <summary>
         /// Windows: takes the newest frame (if any), splits it into the wrist panel (top-left 512x512) and the HMD area
         /// (the 1024x1024 below it) and uploads each to its own texture. Both overlays are then marked dirty, so a frame
@@ -197,12 +189,12 @@ namespace VRCX
             if (frame == null)
                 return;
 
-            CropFrame(frame, 0, 0, WRIST_FRAME_WIDTH, WRIST_FRAME_HEIGHT, _wristCrop);
+            FrameCrop.Copy(frame, SHARED_FRAME_WIDTH, 0, 0, WRIST_FRAME_WIDTH, WRIST_FRAME_HEIGHT, _wristCrop);
             FlipImageVertically(ref _wristCrop, WRIST_FRAME_WIDTH, WRIST_FRAME_HEIGHT);
             _wristTextureWriter.WriteImageToBuffer(_wristCrop);
             _wristTextureWriter.UpdateTexture();
 
-            CropFrame(frame, 0, SHARED_FRAME_HEIGHT - HMD_FRAME_HEIGHT, HMD_FRAME_WIDTH, HMD_FRAME_HEIGHT, _hmdCrop);
+            FrameCrop.Copy(frame, SHARED_FRAME_WIDTH, 0, SHARED_FRAME_HEIGHT - HMD_FRAME_HEIGHT, HMD_FRAME_WIDTH, HMD_FRAME_HEIGHT, _hmdCrop);
             FlipImageVertically(ref _hmdCrop, HMD_FRAME_WIDTH, HMD_FRAME_HEIGHT);
             _hmdTextureWriter.WriteImageToBuffer(_hmdCrop);
             _hmdTextureWriter.UpdateTexture();

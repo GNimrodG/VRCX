@@ -77,5 +77,22 @@ namespace VRCX.Tests
             Assert.True(times.Value.TotalTime > 0);
             Assert.InRange(times.Value.IdleTime, 0, times.Value.TotalTime);
         }
+
+        [Fact]
+        public void FrameCrop_CopiesRectangleRowByRow()
+        {
+            const int w = 4, h = 4;
+            var frame = new byte[w * h * 4];
+            for (var i = 0; i < frame.Length; i++) frame[i] = (byte)i;
+
+            var dest = new byte[2 * 2 * 4];
+            FrameCrop.Copy(frame, w, 1, 2, 2, 2, dest);
+
+            // rows 2..3, columns 1..2
+            Assert.Equal(frame[(2 * w + 1) * 4], dest[0]);
+            Assert.Equal(frame[(2 * w + 2) * 4 + 3], dest[7]);
+            Assert.Equal(frame[(3 * w + 1) * 4], dest[8]);
+            Assert.Equal(frame[(3 * w + 2) * 4 + 3], dest[15]);
+        }
     }
 }

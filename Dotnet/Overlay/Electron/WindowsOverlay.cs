@@ -57,6 +57,17 @@ namespace VRCX
     }
 
     /// <summary>Windows counters for <see cref="SystemMonitorElectron"/> (the Linux ones read /proc).</summary>
+    /// <summary>Fork-only: rectangle copy out of the shared top-down BGRA frame, one texture per overlay on Windows.</summary>
+    public static class FrameCrop
+    {
+        public static void Copy(byte[] frame, int frameWidth, int x, int y, int width, int height, byte[] destination)
+        {
+            var rowBytes = width * 4;
+            for (var row = 0; row < height; row++)
+                Buffer.BlockCopy(frame, ((y + row) * frameWidth + x) * 4, destination, row * rowBytes, rowBytes);
+        }
+    }
+
     public static class WindowsSystemTimes
     {
         [StructLayout(LayoutKind.Sequential)]
