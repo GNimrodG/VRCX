@@ -29,6 +29,15 @@ namespace VRCX
         private bool _menuButton;
         private int _overlayHand;
         private GLTextureWriter _overlayTextureWriter;
+
+        // Windows: one texture per overlay, each shown whole. SteamVR on Windows did not apply SetOverlayTextureBounds to
+        // the shared OpenGL texture (the head-locked HMD overlay showed the whole frame, wrist panel in its top-left), so
+        // the frame is cropped here instead and no texture bounds are needed.
+        private GLTextureWriter _wristTextureWriter;
+        private GLTextureWriter _hmdTextureWriter;
+        private byte[] _wristCrop = new byte[WRIST_FRAME_SIZE];
+        private byte[] _hmdCrop = new byte[HMD_FRAME_SIZE];
+        private bool _wristFrameDirty, _hmdFrameDirty, _wristTextureSet, _hmdTextureSet;
         private Thread _thread;
         private DateTime _nextOverlayUpdate;
 
@@ -126,9 +135,13 @@ namespace VRCX
                     return;
                 }
 
-                _overlayTextureWriter?.Dispose(); // SteamVR restarted: replace the previous texture
-                _overlayTextureWriter = new GLTextureWriter(SHARED_FRAME_WIDTH, SHARED_FRAME_HEIGHT);
-                _overlayTextureWriter.UpdateTexture();
+                _wristTextureWriter?.Dispose(); // SteamVR restarted: replace the previous textures
+                _hmdTextureWriter?.Dispose();
+                _wristTextureWriter = new GLTextureWriter(WRIST_FRAME_WIDTH, WRIST_FRAME_HEIGHT);
+                _hmdTextureWriter = new GLTextureWriter(HMD_FRAME_WIDTH, HMD_FRAME_HEIGHT);
+                _wristTextureWriter.UpdateTexture();
+                _hmdTextureWriter.UpdateTexture();
+                _wristTextureSet = _hmdTextureSet = false;
                 return;
             }
 
@@ -163,6 +176,67 @@ namespace VRCX
         private void UpgradeDevice()
         {
 
+        }
+
+        /// <summary>Copies a rectangle out of the top-down BGRA shared frame (rows of SHARED_FRAME_WIDTH pixels).</summary>
+        internal static void CropFrame(byte[] frame, int x, int y, int width, int height, byte[] destination)
+        {
+            var rowBytes = width * 4;
+            for (var row = 0; row < height; row++)
+                Buffer.BlockCopy(frame, ((y + row) * SHARED_FRAME_WIDTH + x) * 4, destination, row * rowBytes, rowBytes);
+        }
+
+        /// <summary>
+        /// Windows: takes the newest frame (if any), splits it into the wrist panel (top-left 512x512) and the HMD area
+        /// (the 1024x1024 below it) and uploads each to its own texture. Both overlays are then marked dirty, so a frame
+        /// taken while processing one overlay still reaches the other.
+        /// </summary>
+        private void UploadWindowsFrame()
+        {
+            var frame = GetLatestOverlayFrame();
+            if (frame == null)
+                return;
+
+            CropFrame(frame, 0, 0, WRIST_FRAME_WIDTH, WRIST_FRAME_HEIGHT, _wristCrop);
+            FlipImageVertically(ref _wristCrop, WRIST_FRAME_WIDTH, WRIST_FRAME_HEIGHT);
+            _wristTextureWriter.WriteImageToBuffer(_wristCrop);
+            _wristTextureWriter.UpdateTexture();
+
+            CropFrame(frame, 0, SHARED_FRAME_HEIGHT - HMD_FRAME_HEIGHT, HMD_FRAME_WIDTH, HMD_FRAME_HEIGHT, _hmdCrop);
+            FlipImageVertically(ref _hmdCrop, HMD_FRAME_WIDTH, HMD_FRAME_HEIGHT);
+            _hmdTextureWriter.WriteImageToBuffer(_hmdCrop);
+            _hmdTextureWriter.UpdateTexture();
+
+            _wristFrameDirty = _hmdFrameDirty = true;
+        }
+
+        private EVROverlayError SubmitWindowsOverlay(CVROverlay overlay, ulong overlayHandle, ref bool overlayVisible, bool wrist)
+        {
+            UploadWindowsFrame();
+
+            var dirty = wrist ? _wristFrameDirty : _hmdFrameDirty;
+            if (dirty)
+            {
+                var writer = wrist ? _wristTextureWriter : _hmdTextureWriter;
+                var texture = writer.AsTextureT();
+                var bounds = new VRTextureBounds_t { uMin = 0f, uMax = 1f, vMin = 0f, vMax = 1f };
+                overlay.SetOverlayTextureBounds(overlayHandle, ref bounds);
+                var err = overlay.SetOverlayTexture(overlayHandle, ref texture);
+                if (err != EVROverlayError.None)
+                    return err;
+                if (wrist) { _wristFrameDirty = false; _wristTextureSet = true; }
+                else { _hmdFrameDirty = false; _hmdTextureSet = true; }
+            }
+
+            if (!overlayVisible && (wrist ? _wristTextureSet : _hmdTextureSet))
+            {
+                var err = overlay.ShowOverlay(overlayHandle);
+                if (err != EVROverlayError.None)
+                    return err;
+                overlayVisible = true;
+            }
+
+            return EVROverlayError.None;
         }
 
         public byte[] GetLatestOverlayFrame()
@@ -717,7 +791,15 @@ namespace VRCX
             if (!dashboardVisible &&
                 DateTime.UtcNow.CompareTo(_nextOverlayUpdate) <= 0)
             {
-                if (_overlayTextureWriter != null)
+                if (OperatingSystem.IsWindows() && _wristTextureWriter != null)
+                {
+                    err = SubmitWindowsOverlay(overlay, overlayHandle, ref overlayVisible, wrist: true);
+                    if (err != EVROverlayError.None)
+                    {
+                        return err;
+                    }
+                }
+                else if (_overlayTextureWriter != null)
                 {
                     byte[] imageData = GetLatestOverlayFrame();
                     if (imageData != null)
@@ -840,7 +922,15 @@ namespace VRCX
 
             if (!dashboardVisible)
             {
-                if (_overlayTextureWriter != null)
+                if (OperatingSystem.IsWindows() && _hmdTextureWriter != null)
+                {
+                    err = SubmitWindowsOverlay(overlay, overlayHandle, ref overlayVisible, wrist: false);
+                    if (err != EVROverlayError.None)
+                    {
+                        return err;
+                    }
+                }
+                else if (_overlayTextureWriter != null)
                 {
                     byte[] imageData = GetLatestOverlayFrame();
                     if (imageData != null)

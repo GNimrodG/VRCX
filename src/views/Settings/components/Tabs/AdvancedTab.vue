@@ -86,7 +86,7 @@
             </SettingsItem>
         </SettingsGroup>
 
-        <template v-if="!isLinux">
+        <template v-if="showAppLauncher">
             <SettingsGroup :title="t('view.settings.advanced.advanced.app_launcher.header')">
                 <SettingsItem :label="t('view.settings.advanced.advanced.app_launcher.folder')">
                     <Button size="sm" variant="outline" @click="openShortcutFolder()">{{
@@ -459,6 +459,7 @@
     import RegistryBackupDialog from '../../../Tools/dialogs/RegistryBackupDialog.vue';
     import SettingsGroup from '../SettingsGroup.vue';
     import SettingsItem from '../SettingsItem.vue';
+    import { isHostWindows } from '../../../../shared/utils/hostOs.js';
 
     const { t } = useI18n();
 
@@ -532,6 +533,9 @@
     });
 
     const isLinux = computed(() => LINUX);
+    // Fork (VRCX-Headless): the app launcher runs on Windows hosts, including the Windows Electron client, which is
+    // built with LINUX=true; `!isLinux` alone hid this whole section there (CLAUDE.md, "Build flags are not OS flags")
+    const showAppLauncher = computed(() => !isLinux.value || isHostWindows());
 
     function handlePurge() {
         const days = selectedPurgePeriod.value === 'all' ? null : parseInt(selectedPurgePeriod.value, 10);
