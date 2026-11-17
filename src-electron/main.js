@@ -1606,7 +1606,9 @@ function scheduleWindowsInstallAfterUpdate() {
         'Dim sh, fso, wmi, i, attempt',
         'Set sh = CreateObject("WScript.Shell")',
         'Set fso = CreateObject("Scripting.FileSystemObject")',
-        'Set wmi = GetObject("winmgmts:\\.\root\cimv2")',
+        // Backslashes doubled: in a plain JS string `\r` is a carriage return and `\c` is just `c`,
+        // which silently produced `winmgmts:\.ootcimv2` and made wscript die before it logged.
+        'Set wmi = GetObject("winmgmts:\\\\.\\root\\cimv2")',
         'Sub Log(text)',
         '  Dim f',
         `  Set f = fso.OpenTextFile(${q(logPath)}, 8, True)`,
