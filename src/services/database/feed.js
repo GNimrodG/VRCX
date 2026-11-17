@@ -108,6 +108,38 @@ const feed = {
         return rowId ? { ...entry, rowId } : undefined;
     },
 
+    /**
+     * Latest Online/Offline feed row per user, so a freshly loaded client can
+     * show when a friend actually came online instead of "now".
+     *
+     * @param {string[]} userIds
+     * @returns {Promise<Map<string, { type: string; created_at: string }>>}
+     */
+    async getLatestOnlineOfflineForUsers(userIds) {
+        const result = new Map();
+        if (!userIds?.length) {
+            return result;
+        }
+        const params = {};
+        const placeholders = userIds.map((id, i) => {
+            params[`@u${i}`] = id;
+            return `@u${i}`;
+        });
+        await sqliteService.execute(
+            (dbRow) => {
+                result.set(dbRow[0], { type: dbRow[1], created_at: dbRow[2] });
+            },
+            `SELECT user_id, type, created_at FROM ${dbVars.userPrefix}_feed_online_offline
+            WHERE id IN (
+                SELECT MAX(id) FROM ${dbVars.userPrefix}_feed_online_offline
+                WHERE user_id IN (${placeholders.join(', ')})
+                GROUP BY user_id
+            )`,
+            params
+        );
+        return result;
+    },
+
     async searchFeedDatabase(
         search,
         filters,

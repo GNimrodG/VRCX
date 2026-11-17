@@ -12,6 +12,34 @@ import { getCurrentUser } from './userCoordinator';
 import { watchState } from '../services/watchState';
 
 import configRepository from '../services/config';
+import { database } from '../services/database';
+
+/**
+ * Fork: friend refs are rebuilt on every client load with `$online_for = now`,
+ * so a freshly opened client shows everyone as online since it opened. The
+ * server's feed already holds the real transition time; seed it from there.
+ *
+ * @param {ReturnType<typeof useFriendStore>} friendStore
+ */
+async function seedFriendOnlineSince(friendStore) {
+    try {
+        const online = [...friendStore.friends.values()].filter((ctx) => ctx.ref?.state === 'online');
+        if (!online.length) {
+            return;
+        }
+        const latest = await database.getLatestOnlineOfflineForUsers(online.map((ctx) => ctx.id));
+        for (const ctx of online) {
+            const row = latest.get(ctx.id);
+            const since = row?.type === 'Online' ? Date.parse(row.created_at) : NaN;
+            // ctx.ref may have transitioned while the query ran; only touch a still-online friend
+            if (!Number.isNaN(since) && ctx.ref?.state === 'online' && since < ctx.ref.$online_for) {
+                ctx.ref.$online_for = since;
+            }
+        }
+    } catch (err) {
+        console.error('Failed to seed friend online-since from feed', err);
+    }
+}
 
 /**
  * Runs friend list refresh orchestration.
@@ -65,6 +93,7 @@ export async function runInitFriendsListFlow(t) {
 
     friendStore.tryApplyFriendOrder(); // once again
     friendStore.getAllUserStats(); // joinCount, lastSeen, timeSpent
+    seedFriendOnlineSince(friendStore); // fork: real "online for" from the feed
 
     // remove old data from json file and migrate to SQLite (July 2021)
     if (await VRCXStorage.Get(`${userId}_friendLogUpdatedAt`)) {
