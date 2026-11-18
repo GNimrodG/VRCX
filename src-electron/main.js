@@ -1603,7 +1603,7 @@ function scheduleWindowsInstallAfterUpdate() {
         // "app is running" check, and the relaunch below bounced off the old single-instance lock.
         'set /a tries=0',
         ':waitold',
-        `tasklist /FI "PID eq ${pid}" /NH 2>nul | find "${pid}" >nul`,
+        `tasklist /FI "PID eq ${pid}" /FI "IMAGENAME eq ${exeName}" /NH 2>nul | find "${pid}" >nul`,
         'if errorlevel 1 goto oldgone',
         'set /a tries+=1',
         'if %tries% GEQ 30 goto killold',
@@ -1659,7 +1659,8 @@ function scheduleWindowsInstallAfterUpdate() {
     logFork(`Wrote ${batchPath}, spawning cmd.exe`);
     const launcher = spawn('cmd.exe', ['/c', batchPath], {
         detached: true,
-        stdio: 'ignore'
+        stdio: 'ignore',
+        windowsHide: true
     });
     logFork(`cmd.exe spawn returned, pid=${launcher.pid}`);
     // Fire-and-forget from here — an unhandled 'error' on this emitter
