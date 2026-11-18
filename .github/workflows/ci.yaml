@@ -56,6 +56,29 @@ jobs:
       - uses: ./.github/actions/install-deps
       - run: pnpm test
 
+  # Fork-only: runs the generated apply-update.vbs under real wscript.exe/WMI against dummy executables
+  # (server/test/windows-update-script.test.js). The same tests skip on Linux, where server-docker.yaml runs
+  # the rest of the server suite, so this is the only place the Windows update chain is actually exercised.
+  test_windows_update:
+    name: Windows update script (Vitest)
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: ./.github/actions/install-deps
+      - name: Run the update script tests
+        shell: bash
+        run: pnpm exec vitest run --config server/vitest.config.js windows-update-script --reporter=default --reporter=json --outputFile.json=update-test.json
+      # A skipped describe is a green run, so assert the real-wscript half actually executed and passed.
+      - name: Check the real-wscript tests ran
+        shell: bash
+        run: node server/scripts/check-update-tests.js update-test.json
+
   format_c_sharp:
     name: Format C# (dotnet format)
     runs-on: ubuntu-latest

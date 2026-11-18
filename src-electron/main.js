@@ -20,6 +20,7 @@ const { WebSocket: WsClient } = require('ws');
 const { applyApiKeysFrameOverride } = require('./apiKeysFrame');
 const { verifyWithCustomCa } = require('./customCaTrust');
 const { refreshWithRetry, isTransientStatus } = require('./sessionRetry');
+const { buildWindowsUpdateScript } = require('./windowsUpdateScript');
 const { getOverlayFrameTransport, getOverlayShmPath, getOverlayFrameResize } = require('./overlayShm');
 
 //app.disableHardwareAcceleration();
@@ -1595,72 +1596,11 @@ function scheduleWindowsInstallAfterUpdate() {
     const logPath = path.join(getVRCXPath(), 'apply-update.log');
     const exeName = path.basename(execPathBeforeUpdate);
     const pid = process.pid;
-    // A VBScript run by wscript.exe instead of a .bat: it has no console window at all, and it
-    // checks processes through WMI. The previous batch used `tasklist | find` and `timeout`,
-    // which hang or abort when cmd.exe is launched detached without a console (the update
-    // stuck at "waiting for old process"). It can't be an Electron-as-Node helper either: the
-    // installer has to replace this very exe while the helper runs.
-    const q = (value) => `"${String(value).replace(/"/g, '""')}"`;
-    const scriptLines = [
-        'Option Explicit',
-        'Dim sh, fso, wmi, i, attempt',
-        'Set sh = CreateObject("WScript.Shell")',
-        'Set fso = CreateObject("Scripting.FileSystemObject")',
-        // Backslashes doubled: in a plain JS string `\r` is a carriage return and `\c` is just `c`,
-        // which silently produced `winmgmts:\.ootcimv2` and made wscript die before it logged.
-        'Set wmi = GetObject("winmgmts:\\\\.\\root\\cimv2")',
-        'Sub Log(text)',
-        '  Dim f',
-        `  Set f = fso.OpenTextFile(${q(logPath)}, 8, True)`,
-        '  f.WriteLine "[" & Now & "] " & text',
-        '  f.Close',
-        'End Sub',
-        'Function Running(clause)',
-        '  Running = (wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE " & clause).Count > 0)',
-        'End Function',
-        `Log "scheduled, waiting for old process ${pid} to exit"`,
-        // A fixed short wait raced a slow-exiting old process: the installer then stalled on its
-        // "app is running" check, and the relaunch bounced off the old single-instance lock.
-        'For i = 1 To 30',
-        `  If Not Running("ProcessId = ${pid}") Then Exit For`,
-        '  WScript.Sleep 1000',
-        'Next',
-        `If Running("ProcessId = ${pid}") Then`,
-        '  Log "old process still alive after 30s, killing it"',
-        `  sh.Run "taskkill /F /T /PID ${pid}", 0, True`,
-        '  WScript.Sleep 2000',
-        'End If',
-        'Log "running installer"',
-        `i = sh.Run(${q(q(updateExePath))}, 1, True)`,
-        'Log "installer exit code " & i',
-        // The NSIS installer can hand its work to a child and return early, which made the
-        // relaunch start a half-replaced app. Wait until the installer is really done.
-        'For i = 1 To 120',
-        '  If Not (Running("Name = \'update.exe\'") Or Running("Name LIKE \'Uninstall%\'")) Then Exit For',
-        '  WScript.Sleep 1000',
-        'Next',
-        'Log "installer processes gone"',
-        // The installer runs from update.exe in place, so nothing else removes it.
-        // Left behind, the relaunched app's Update.Check() (Dotnet/Program.cs Init)
-        // moves it to VRCX_Setup.exe and re-runs the installer, then Environment.Exit(0)s
-        // before the app ever opens: the "installer ran twice, app never launched" bug.
-        'On Error Resume Next',
-        `fso.DeleteFile ${q(updateExePath)}, True`,
-        'On Error GoTo 0',
-        'Log "removed update.exe"',
-        // The installer's own "run after finish" may already have started the app, so only
-        // launch it when nothing is running; then check again, up to 3 attempts.
-        'For attempt = 1 To 3',
-        `  If Running("Name = '${exeName.replace(/'/g, "''")}'") Then`,
-        '    Log "app is running"',
-        '    Exit For',
-        '  End If',
-        '  Log "relaunch attempt " & attempt',
-        `  sh.Run ${q(q(execPathBeforeUpdate))}, 1, False`,
-        '  WScript.Sleep 15000',
-        'Next'
-    ];
-    fs.writeFileSync(scriptPath, scriptLines.join('\r\n'));
+    // Script text lives in windowsUpdateScript.js so the tests can run it against dummy exes.
+    fs.writeFileSync(
+        scriptPath,
+        buildWindowsUpdateScript({ pid, exeName, execPath: execPathBeforeUpdate, updateExePath, logPath })
+    );
     logFork(`Wrote ${scriptPath}, spawning wscript.exe`);
     const launcher = spawn('wscript.exe', ['//B', '//Nologo', scriptPath], {
         detached: true,
