@@ -179,7 +179,25 @@ const IMPLEMENTED = {
     // SetTrayIconNotification above — a no-op is the correct behaviour,
     // not a stand-in for a missing capability, but unlike that one this
     // was blocking a core flow rather than a background hint.
-    async FlashWindow() {}
+    async FlashWindow() {},
+    // Native `OpenLink` (Dotnet/AppApi/Common/AppApiCommon.cs) hands an
+    // http(s) URL to the OS browser and ignores anything else; a browser tab
+    // does the same with a new tab. `noopener` so the opened page gets no
+    // handle on this one, which holds the session. Called synchronously from
+    // the click handler (before any `await`), which is what keeps popup
+    // blockers from treating it as unsolicited.
+    async OpenLink(url) {
+        let parsed;
+        try {
+            parsed = new URL(String(url ?? ''));
+        } catch {
+            return;
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return;
+        }
+        window.open(parsed.href, '_blank', 'noopener,noreferrer');
+    }
 };
 
 export const appApiTarget = new Proxy(IMPLEMENTED, {
