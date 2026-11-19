@@ -45,6 +45,10 @@ vi.mock('../../../../stores', () => ({
     useFavoriteStore: () => mocks.favoriteStore
 }));
 
+vi.mock('../../../../components/dialogs/TempAutoAcceptDialog.vue', () => ({
+    default: { name: 'TempAutoAcceptDialog', render: () => null }
+}));
+
 vi.mock('../../../../shared/constants', () => ({
     accessTypeLocaleKeyMap: {
         invite: 'access.invite',

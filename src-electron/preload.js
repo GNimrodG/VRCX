@@ -79,6 +79,8 @@ const validChannels = ['launch-command'];
 
 contextBridge.exposeInMainWorld('electron', {
     getArch: () => ipcRenderer.invoke('app:getArch'),
+    getTempAutoAccept: () => ipcRenderer.invoke('app:getTempAutoAccept'),
+    setTempAutoAccept: (state) => ipcRenderer.invoke('app:setTempAutoAccept', state),
     getClipboardText: () => ipcRenderer.invoke('app:getClipboardText'),
     getNoUpdater: () => ipcRenderer.invoke('app:getNoUpdater'),
     getCanSelfUpdate: () => ipcRenderer.invoke('app:getCanSelfUpdate'),

@@ -1432,6 +1432,16 @@
         }
     },
     "dialog": {
+        "temp_auto_accept": {
+            "header": "Auto-accept invite requests from specific friends",
+            "hint": "Pick friends whose invite requests are accepted automatically. Turns off again when the computer restarts.",
+            "open": "Choose friends…",
+            "description": "While this is on, an invite request from any of these friends is accepted right away (you invite them to your current instance), whatever the settings above say. Useful if you might fall asleep and still want them to be able to join you. This app has to stay open for it to work.",
+            "enable": "Auto-accept for these friends",
+            "friends": "Friends",
+            "friends_placeholder": "Choose friends",
+            "reset_hint": "This survives restarting or updating the app, but switches off and clears the list when the computer restarts. In a browser it lasts until the tab is closed."
+        },
         "alertdialog": {
             "ok": "OK",
             "cancel": "Cancel",

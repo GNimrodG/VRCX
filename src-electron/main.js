@@ -18,6 +18,7 @@ const https = require('https');
 const os = require('os');
 const { WebSocket: WsClient } = require('ws');
 const { applyApiKeysFrameOverride } = require('./apiKeysFrame');
+const { createTempAutoAcceptStore } = require('./tempAutoAcceptStore');
 const { verifyWithCustomCa } = require('./customCaTrust');
 const { refreshWithRetry, isTransientStatus } = require('./sessionRetry');
 const { buildWindowsUpdateScript } = require('./windowsUpdateScript');
@@ -1339,6 +1340,16 @@ ipcMain.handle('app:updateVr', (_event, active, hmdOverlay, wristOverlay, _menuB
     }
 });
 
+// Fork-only: the temporary auto-accept friend list survives an app restart but
+// not a system restart (see tempAutoAcceptStore.js)
+const tempAutoAcceptStore = createTempAutoAcceptStore({
+    filePath: path.join(userDataPath, 'temp-auto-accept.json'),
+    fs,
+    os
+});
+ipcMain.handle('app:getTempAutoAccept', () => tempAutoAcceptStore.load());
+ipcMain.handle('app:setTempAutoAccept', (_event, state) => tempAutoAcceptStore.save(state));
+
 ipcMain.handle('app:getArch', () => {
     return process.arch.toString();
 });
@@ -1949,6 +1960,8 @@ function createWindow() {
     // Pinning it here, rather than editing that upstream file, keeps this
     // purely a fork-side concern.
     mainWindow.on('page-title-updated', (titleEvent) => titleEvent.preventDefault());
+    // Windows log-off/shutdown (Fast Startup keeps os.uptime() running across it)
+    mainWindow.on('session-end', () => tempAutoAcceptStore.clear());
     applyWindowState();
 
     // Phase 5: gate on an already-connected, still-valid server session

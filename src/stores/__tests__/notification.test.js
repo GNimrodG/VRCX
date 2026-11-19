@@ -20,6 +20,7 @@ vi.mock('../../api', () => ({
         getInstance: vi.fn()
     },
     notificationRequest: {
+        sendInvite: vi.fn(() => Promise.resolve({})),
         hideNotification: vi.fn(() => Promise.resolve({})),
         getNotifications: vi.fn(() => Promise.resolve({ json: [] })),
         getNotificationsV2: vi.fn(() => Promise.resolve({ json: [] })),
@@ -100,6 +101,10 @@ const { notificationRequest } = await import('../../api');
 
 const { useNotificationStore } = await import('../notification');
 const { useGeneralSettingsStore } = await import('../settings/general');
+const { useUserStore } = await import('../user');
+const { useLocationStore } = await import('../location');
+const { queryRequest } = await import('../../api');
+const { setTempAutoAcceptEnabled, setTempAutoAcceptUserIds } = await import('../../shared/utils/tempAutoAccept');
 
 describe('notification store - auto decline friend requests', () => {
     let notificationStore;
@@ -229,5 +234,58 @@ describe('notification store - auto decline friend requests', () => {
 
         expect(database.getJoinCount).not.toHaveBeenCalled();
         expect(notificationRequest.hideNotification).not.toHaveBeenCalled();
+    });
+});
+
+describe('notification store - temporary auto-accept from specific friends', () => {
+    const request = (senderUserId) => ({
+        id: `not_${senderUserId}`,
+        type: 'requestInvite',
+        senderUserId,
+        senderUsername: 'Someone'
+    });
+    let notificationStore;
+
+    beforeEach(() => {
+        setActivePinia(createPinia());
+        vi.clearAllMocks();
+        notificationStore = useNotificationStore();
+        useUserStore().currentUser = { id: 'usr_me', status: 'busy' };
+        useLocationStore().lastLocation.location = 'wrld_x:123';
+        vi.mocked(queryRequest.fetch).mockResolvedValue({ ref: { name: 'World' } });
+        setTempAutoAcceptEnabled(false);
+        setTempAutoAcceptUserIds([]);
+    });
+
+    const receive = (senderUserId) => {
+        const ref = request(senderUserId);
+        notificationStore.handlePipelineNotification({ json: ref, params: { notificationId: ref.id } });
+    };
+
+    it('does nothing for a friend who is not listed (mode Off)', async () => {
+        setTempAutoAcceptEnabled(true);
+        setTempAutoAcceptUserIds(['usr_listed']);
+        receive('usr_other');
+        await Promise.resolve();
+        expect(queryRequest.fetch).not.toHaveBeenCalled();
+    });
+
+    it('invites a listed friend even though the saved mode is Off', async () => {
+        setTempAutoAcceptEnabled(true);
+        setTempAutoAcceptUserIds(['usr_listed']);
+        receive('usr_listed');
+        await vi.waitFor(() => {
+            expect(notificationRequest.sendInvite).toHaveBeenCalledWith(
+                expect.objectContaining({ worldId: 'wrld_x:123', rsvp: true }),
+                'usr_listed'
+            );
+        });
+    });
+
+    it('does nothing once switched off again', async () => {
+        setTempAutoAcceptUserIds(['usr_listed']);
+        receive('usr_listed');
+        await Promise.resolve();
+        expect(queryRequest.fetch).not.toHaveBeenCalled();
     });
 });

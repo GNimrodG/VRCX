@@ -289,8 +289,24 @@
                         </Select>
                     </FieldContent>
                 </Field>
+
+                <FieldSeparator></FieldSeparator>
+
+                <!-- Fork-only: session-only per-friend auto-accept -->
+                <Field>
+                    <FieldLabel>{{ t('dialog.temp_auto_accept.header') }}</FieldLabel>
+                    <FieldContent>
+                        <p class="text-xs text-muted-foreground">{{ t('dialog.temp_auto_accept.hint') }}</p>
+                        <div>
+                            <Button size="sm" variant="outline" @click="tempAutoAcceptOpen = true">
+                                {{ t('dialog.temp_auto_accept.open') }}
+                            </Button>
+                        </div>
+                    </FieldContent>
+                </Field>
             </FieldGroup>
         </DialogContent>
+        <TempAutoAcceptDialog v-model:open="tempAutoAcceptOpen" />
     </Dialog>
 </template>
 
@@ -308,7 +324,8 @@
     import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
     import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
     import { Input } from '@/components/ui/input';
-    import { computed } from 'vue';
+    import { computed, ref } from 'vue';
+    import { Button } from '@/components/ui/button';
     import { storeToRefs } from 'pinia';
     import { useI18n } from 'vue-i18n';
 
@@ -316,6 +333,9 @@
     import { accessTypeLocaleKeyMap } from '../../../shared/constants';
 
     import SimpleSwitch from '../../Settings/components/SimpleSwitch.vue';
+    import TempAutoAcceptDialog from '../../../components/dialogs/TempAutoAcceptDialog.vue';
+
+    const tempAutoAcceptOpen = ref(false);
 
     defineProps({
         isAutoChangeStatusDialogVisible: {

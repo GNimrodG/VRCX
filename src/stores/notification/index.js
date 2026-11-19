@@ -36,6 +36,7 @@ import {
 import { database, dbVars } from '../../services/database';
 import { getNotificationCategory, getNotificationTs } from '../../shared/utils/notificationCategory';
 import { parseLogNotification } from '../../shared/utils/gameLogNotification';
+import { isTempAutoAcceptSender } from '../../shared/utils/tempAutoAccept';
 import { AppDebug } from '../../services/appConfig';
 import { createOverlayDispatch } from './overlayDispatch';
 import { useAdvancedSettingsStore } from '../settings/advanced';
@@ -374,11 +375,14 @@ export const useNotificationStore = defineStore('Notification', () => {
         if (ref.type === 'friendRequest' && generalSettingsStore.autoDeclineFriendRequests) {
             handleAutoDeclineFriendRequest(ref);
         }
-        if (ref.type !== 'requestInvite' || generalSettingsStore.autoAcceptInviteRequests === 'Off') {
+        // Fork-only: friends on the session-only list are accepted whatever the
+        // persisted mode/status/favorites settings say.
+        const tempAllowed = ref.type === 'requestInvite' && isTempAutoAcceptSender(ref.senderUserId);
+        if (ref.type !== 'requestInvite' || (generalSettingsStore.autoAcceptInviteRequests === 'Off' && !tempAllowed)) {
             return;
         }
         const allowedStatuses = generalSettingsStore.autoAcceptInviteStatuses;
-        if (allowedStatuses.length && !allowedStatuses.includes(userStore.currentUser.status)) {
+        if (!tempAllowed && allowedStatuses.length && !allowedStatuses.includes(userStore.currentUser.status)) {
             return;
         }
 
@@ -397,13 +401,14 @@ export const useNotificationStore = defineStore('Notification', () => {
             return;
         }
         if (
+            !tempAllowed &&
             generalSettingsStore.autoAcceptInviteRequests === 'All Favorites' &&
             !favoriteStore.state.favoriteFriends_.some((x) => x.id === ref.senderUserId) &&
             !favoriteStore.isInAnyLocalFriendGroup(ref.senderUserId)
         ) {
             return;
         }
-        if (generalSettingsStore.autoAcceptInviteRequests === 'Selected Favorites') {
+        if (!tempAllowed && generalSettingsStore.autoAcceptInviteRequests === 'Selected Favorites') {
             const groups = generalSettingsStore.autoAcceptInviteGroups;
             if (groups.length === 0) {
                 return;

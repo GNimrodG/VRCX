@@ -37,6 +37,8 @@ declare global {
         };
         electron: {
             getArch: () => Promise<string>;
+            getTempAutoAccept: () => Promise<{ enabled: boolean; userIds: string[] }>;
+            setTempAutoAccept: (state: { enabled: boolean; userIds: string[] }) => Promise<unknown>;
             getClipboardText: () => Promise<string>;
             getNoUpdater: () => Promise<boolean>;
             getCanSelfUpdate: () => Promise<boolean>;

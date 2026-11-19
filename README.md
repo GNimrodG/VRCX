@@ -50,6 +50,7 @@ Everything here is on top of upstream VRCX, which keeps working as before. This 
 - **Start with SteamVR** option.
 - **Persistent invite notifications** that stay on screen until dismissed while the game is closed.
 - **Customizable tray and in-app notification dot colors** per notification type.
+- **Temporary auto-accept for specific friends** (Auto Change Status dialog): pick friends whose invite requests are accepted automatically, for example in case you fall asleep. It's off by default and survives an app restart or update, but not a system restart.
 
 ### UI and behaviour changes
 
