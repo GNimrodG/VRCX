@@ -623,6 +623,11 @@
                             </div>
                         </div>
                     </template>
+                    <template #Performance>
+                        <AvatarPerformanceTab
+                            :file-analysis="avatarDialog.fileAnalysis"
+                            :platform-info="avatarDialog.platformInfo" />
+                    </template>
                     <template #JSON>
                         <DialogJsonTab
                             class="rounded-xl bg-(--profile-card) p-2"
@@ -740,6 +745,7 @@
     } from '../../../coordinators/avatarCoordinator';
     import { useAvatarDialogCommands } from './useAvatarDialogCommands';
 
+    import AvatarPerformanceTab from './AvatarPerformanceTab.vue';
     import DialogJsonTab from '../DialogJsonTab.vue';
     import ImageCropDialog from '../ImageCropDialog.vue';
     import { showUserDialog } from '../../../coordinators/userCoordinator';
@@ -822,6 +828,7 @@
 
     const avatarDialogTabs = computed(() => [
         { value: 'Info', label: t('dialog.avatar.info.header') },
+        { value: 'Performance', label: t('dialog.avatar.performance.header') },
         { value: 'JSON', label: t('dialog.avatar.json.header') }
     ]);
 

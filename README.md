@@ -57,6 +57,7 @@ Everything here is on top of upstream VRCX, which keeps working as before. This 
 - Headless server status indicator in the status bar.
 - Option to show a friend's status instead of "Private" in the sidebar.
 - DeepL as a third bio translation provider.
+- **Avatar performance breakdown**: a Performance tab in the avatar dialog lists every ranked stat (triangles, texture memory, PhysBones, meshes, …) per platform with its rank and the limit for the next-better rank, and highlights the stats that set the avatar's overall rating.
 
 Everything below is upstream VRCX's own documentation and still describes the desktop app.
 
