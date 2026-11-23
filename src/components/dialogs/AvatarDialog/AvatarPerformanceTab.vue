@@ -77,7 +77,11 @@
                         </TableRow>
                         <TableRow v-if="visibleStats.length === 0">
                             <TableCell colspan="4" class="text-center text-muted-foreground">
-                                {{ t('dialog.avatar.performance.all_excellent') }}
+                                {{
+                                    onlyIssues && analysis.stats.length
+                                        ? t('dialog.avatar.performance.all_excellent')
+                                        : t('dialog.avatar.performance.no_data')
+                                }}
                             </TableCell>
                         </TableRow>
                     </TableBody>
@@ -108,6 +112,7 @@
 
     import {
         INFO_STATS,
+        PERFORMANCE_RANKS,
         analyzeAvatarPerformance,
         formatPerformanceValue,
         getPerformanceLimitSet,
@@ -161,15 +166,18 @@
     const analysis = computed(() => analyzeAvatarPerformance(avatarStats.value, selectedPlatform.value));
 
     const vrchatRank = computed(() => {
-        const fromAnalysis = props.fileAnalysis?.[selectedPlatform.value]?.performanceRating;
         const fromPackage = props.platformInfo?.[PLATFORM_INFO_KEY[selectedPlatform.value]]?.performanceRating;
-        return normalizePerformanceRank(fromAnalysis || fromPackage) || null;
+        const fromAnalysis = props.fileAnalysis?.[selectedPlatform.value]?.performanceRating;
+        return normalizePerformanceRank(fromPackage || fromAnalysis) || null;
     });
 
     // VRChat can rate worse than the stats show (Mesh Read/Write disabled, face
     // tracking operations, forwarded parameters aren't in avatarStats).
     const ratingMismatch = computed(
-        () => vrchatRank.value && analysis.value.rank && vrchatRank.value !== analysis.value.rank
+        () =>
+            vrchatRank.value &&
+            analysis.value.rank &&
+            PERFORMANCE_RANKS.indexOf(vrchatRank.value) > PERFORMANCE_RANKS.indexOf(analysis.value.rank)
     );
 
     const limitingLabels = computed(() =>
@@ -177,7 +185,9 @@
     );
 
     const visibleStats = computed(() =>
-        onlyIssues.value ? analysis.value.stats.filter((stat) => stat.rank !== 'Excellent') : analysis.value.stats
+        onlyIssues.value
+            ? analysis.value.stats.filter((stat) => stat.rank && stat.rank !== 'Excellent')
+            : analysis.value.stats
     );
 
     const infoStats = computed(() => {
