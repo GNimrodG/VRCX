@@ -114,7 +114,9 @@ describe.skipIf(!canRunReal)('apply-update.vbs against dummy executables (Window
         dummyExe = path.join(root, 'dummy.exe');
         fs.writeFileSync(src, DUMMY_SOURCE);
         execFileSync(CSC, ['/nologo', '/target:winexe', `/out:${dummyExe}`, src], { stdio: 'pipe' });
-    });
+        // The describe-level timeout covers tests only; hooks have their own 10s default, which a cold
+        // CI runner's first csc run exceeds (v5 vitest, 2026-11-23).
+    }, 120_000);
 
     afterEach(() => {
         for (const pid of spawnedPids.splice(0)) {
